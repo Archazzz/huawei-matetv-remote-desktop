@@ -1,6 +1,7 @@
 import { router } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { preferences } from '@kit.ArkData';
 import { TvAudioProbe } from '../services/TvAudioProbe';
 
 @Entry
@@ -14,6 +15,18 @@ struct TvInputLab {
   @State private testFocused: boolean = false;
   private audioProbe: TvAudioProbe = new TvAudioProbe();
   private audioGeneration: number = 0;
+  private keyDiagnostics: string[] = [];
+
+  aboutToAppear(): void { this.saveKeyDiagnostic('test-page-open'); }
+
+  private saveKeyDiagnostic(value: string): void {
+    this.keyDiagnostics = [...this.keyDiagnostics, Date.now().toString() + ' ' + value].slice(-32);
+    try {
+      const prefs = preferences.getPreferencesSync(getContext(this), { name: 'ScreenLinkInputDiagnostics' });
+      prefs.putSync('remoteKeys', JSON.stringify(this.keyDiagnostics));
+      prefs.flushSync();
+    } catch (_error) { /* Diagnostics must not prevent using the input lab. */ }
+  }
 
   private cancelAudioTest(): void {
     this.audioGeneration++;
@@ -46,7 +59,8 @@ struct TvInputLab {
     const value: string = stage + ' key=' + event.keyCode.toString() +
       ' type=' + event.type.toString() + ' device=' + event.deviceId.toString();
     this.record(value);
-    hilog.info(0xD003900, 'ScreenLinkInputLab', '%{public}s', value);
+    this.saveKeyDiagnostic(value);
+    hilog.info(0x14, 'ScreenLinkInputLab', '%{public}s', value);
   }
 
   build() {
@@ -71,8 +85,8 @@ struct TvInputLab {
           Text('事件仅显示在本机，不会发送到电脑。').fontSize(18).fontColor('#B1C2CA')
         }.layoutWeight(1).height(240).backgroundColor('#243640').borderRadius(16)
           .id('ScreenLinkInputLabTarget').focusable(true).defaultFocus(true)
-          .onFocus((): void => { this.testFocused = true; })
-          .onBlur((): void => { this.testFocused = false; })
+          .onFocus((): void => { this.testFocused = true; this.saveKeyDiagnostic('target-focus'); })
+          .onBlur((): void => { this.testFocused = false; this.saveKeyDiagnostic('target-blur'); })
           .onClick((event: ClickEvent): void => {
             this.getUIContext().getFocusController().requestFocus('ScreenLinkInputLabTarget');
             this.record('click source=' + event.source.toString() + ' x=' + Math.round(event.x) + ' y=' + Math.round(event.y));
