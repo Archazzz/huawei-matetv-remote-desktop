@@ -24,11 +24,12 @@ struct TvHome {
   @State private focusedComputer: string = '';
   private service: HostSyncService = HostSyncService.getInstance();
   private generation: number = 0;
+  private navigationGeneration: number = 0;
 
   aboutToAppear(): void { this.visible = true; void this.refresh(); }
-  onPageShow(): void { this.visible = true; this.opening = false; void this.refresh(); }
-  onPageHide(): void { this.visible = false; }
-  aboutToDisappear(): void { this.visible = false; this.generation++; }
+  onPageShow(): void { this.navigationGeneration++; this.visible = true; this.opening = false; void this.refresh(); }
+  onPageHide(): void { this.visible = false; this.navigationGeneration++; }
+  aboutToDisappear(): void { this.visible = false; this.generation++; this.navigationGeneration++; }
 
   private notificationChanged(): void {
     if (!this.visible || !this.ready || this.opening) { return; }
@@ -103,12 +104,24 @@ struct TvHome {
   }
 
   private openComputer(host: RemoteHost): void {
-    if (!this.ready || this.opening) { return; }
-    this.opening = true;
+    if (!this.ready) { return; }
     // The upstream session performs authentication and host-lock checks.
     // Never pass authenticated/preauthenticated flags from this launcher.
-    router.pushUrl({ url: 'pages/RemoteDesktop', params: { hostId: host.id } })
-      .catch((): void => { this.opening = false; this.error = '无法打开远程桌面，请重试'; });
+    this.openPage('pages/RemoteDesktop', host.id);
+  }
+
+  private openPage(url: string, hostId: string = ''): void {
+    if (!this.visible || this.opening) { return; }
+    this.opening = true;
+    const generation: number = ++this.navigationGeneration;
+    const params: Record<string, Object> = {};
+    if (hostId.length > 0) { params['hostId'] = hostId; }
+    router.pushUrl({ url, params }).catch((): void => {
+      // A late rejection must not unlock a newer navigation after returning home.
+      if (generation !== this.navigationGeneration || !this.visible) { return; }
+      this.opening = false;
+      this.error = '无法打开页面，请重试';
+    });
   }
 
   @Builder
@@ -174,10 +187,10 @@ struct TvHome {
           Text('你的电脑，就在大屏上').fontSize(16).fontColor('#AFC4CC')
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
         Row({ space: 10 }) {
-          this.headerAction($r('sys.symbol.bell'), '电脑通知', (): void => { if (this.ready) { router.pushUrl({ url: 'pages/TvNotifications' }); } })
+          this.headerAction($r('sys.symbol.bell'), '电脑通知', (): void => { if (this.ready) { this.openPage('pages/TvNotifications'); } })
           this.headerAction($r('sys.symbol.plus'), '添加电脑', (): void => { if (this.ready) { this.editing = true; } })
-          this.headerAction($r('sys.symbol.gearshape_fill'), '管理高级连接', (): void => { router.pushUrl({ url: 'pages/HostListPage' }); })
-          this.headerAction($r('sys.symbol.rectangle_on_rectangle'), '输入设备测试', (): void => { router.pushUrl({ url: 'pages/TvInputLab' }); })
+          this.headerAction($r('sys.symbol.gearshape_fill'), '管理高级连接', (): void => { this.openPage('pages/HostListPage'); })
+          this.headerAction($r('sys.symbol.rectangle_on_rectangle'), '输入设备测试', (): void => { this.openPage('pages/TvInputLab'); })
         }
       }.width('100%')
       if (this.error !== '') {
