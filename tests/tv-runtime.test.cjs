@@ -16,7 +16,7 @@ const transaction = session.slice(session.indexOf('  private clearPhysicalMouseC
 function create(layout = 'macos') {
   const context = vm.createContext({
     deviceInfo: { deviceType: 'tv' },
-    SourceTool: { MOUSE: 7, Finger: 1 }, SourceType: { Mouse: 2 },
+    SourceTool: { MOUSE: 7, Finger: 1 }, SourceType: { Mouse: 2, KEY: 4, JOYSTICK: 5 },
     TouchType: { Down: 0, Up: 1, Move: 2, Cancel: 3 },
     MouseAction: { Press: 1, Release: 2 }, MouseButton: { Left: 1 },
     hilog: { info() {}, warn() {} }, RD_DOMAIN: 0, RD_TAG: 'test',
@@ -107,12 +107,12 @@ test('Leaving waits for native completion and repeated back cannot start another
 
 test('TV synthesized tap without raw down/up produces a click', () => {
   const { page, events } = create();
-  page.mateTvTap({ fingerInfos: [{ localX: 120, localY: 90 }], fingerList: [] });
+  page.mateTvActivate({ source: 2, x: 120, y: 90 });
   assert.deepEqual(events, [['down', 120, 90, 0], ['up', 120, 90, 0]]);
 });
 test('A real touch followed by its tap recognizer never clicks twice', () => {
   const { page, events, touch } = create(); touch(0); touch(1);
-  page.mateTvTap({ fingerList: [{ localX: 100, localY: 100 }] });
+  page.mateTvActivate({ source: 1, x: 100, y: 100 });
   assert.equal(events.length, 2);
 });
 
@@ -182,4 +182,17 @@ test('Changing display geometry resets the pan axis and center', () => {
   page.resetCanvasToDisplayDefault();
   assert.equal(page.mateTvViewCanX, false); assert.equal(page.mateTvViewCanY, true);
   close(page.mateTvViewX, 50); close(page.mateTvViewY, 50);
+});
+
+test('Independent semantic activations are not suppressed by a consumed raw duplicate', () => {
+  const { page, events, touch } = create(); touch(0); touch(1);
+  page.mateTvActivate({ source: 1, x: 100, y: 100 });
+  page.mateTvActivate({ source: 1, x: 100, y: 100 });
+  assert.equal(events.length, 4);
+});
+test('Remote confirm activation targets the last pointer position', () => {
+  const { page, events } = create();
+  page.mateTvPointerX = 140; page.mateTvPointerY = 80;
+  page.mateTvActivate({ source: 4, x: 0, y: 0 });
+  assert.deepEqual(events, [['down', 140, 80, 0], ['up', 140, 80, 0]]);
 });

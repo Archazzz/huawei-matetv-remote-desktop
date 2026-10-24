@@ -20,6 +20,10 @@
     if (!this.mateTvMode) { return false; }
     this.mateTvPointerX = event.x;
     this.mateTvPointerY = event.y;
+    if (event.action === MouseAction.Press || event.action === MouseAction.Release) {
+      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV mouse boundary action=' + event.action.toString() +
+        ' tool=' + event.sourceTool.toString() + ' touchActive=' + (this.mateTvTouchId >= 0).toString());
+    }
     if (event.sourceTool === SourceTool.Finger || this.mateTvTouchId >= 0) { return true; }
     if (event.action === MouseAction.Press || event.action === MouseAction.Release) {
       this.mateTvButtonAt = Date.now();
@@ -44,6 +48,10 @@
   }
 
   private mateTvTouch(event: TouchEvent): void {
+    if (event.type !== TouchType.Move) {
+      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch boundary type=' + event.type.toString() +
+        ' tool=' + event.sourceTool.toString() + ' count=' + event.changedTouches.length.toString());
+    }
     // ArkUI synthesizes touch from a mouse. The mouse path owns that sequence.
     if (event.sourceTool === SourceTool.MOUSE || event.source === SourceType.Mouse) { return; }
     event.stopPropagation();
@@ -109,34 +117,38 @@
     }
   }
 
-  private mateTvTap(event: GestureEvent): void {
+  private mateTvActivate(event: ClickEvent): void {
     if (!this.mateTvMode) { return; }
-    const fingers: FingerInfo[] = event.fingerInfos ?? event.fingerList;
-    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV tap received points=' + fingers.length.toString());
-    if (fingers.length > 0 && fingers[0] !== undefined) {
-      this.mateTvClick(fingers[0].localX, fingers[0].localY);
-    } else if (this.mateTvPointerX >= 0 && this.mateTvPointerY >= 0) {
-      this.mateTvClick(this.mateTvPointerX, this.mateTvPointerY);
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV activate source=' + event.source.toString());
+    if (event.source === SourceType.KEY || event.source === SourceType.JOYSTICK) {
+      if (this.mateTvPointerX >= 0 && this.mateTvPointerY >= 0) {
+        this.mateTvClick(this.mateTvPointerX, this.mateTvPointerY);
+      }
+    } else {
+      this.mateTvClick(event.x, event.y);
     }
-  }
-
-  private mateTvConfirmKey(event: KeyEvent): boolean {
-    // The TV OK key is distinct from a physical keyboard's Enter key (2054).
-    if (!this.mateTvMode || event.keyCode !== 2016 || this.mateTvDisplayOpen || this.mateTvTextOpen) { return false; }
-    if (event.type === KeyType.Up && this.mateTvPointerX >= 0 && this.mateTvPointerY >= 0) {
-      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV pointer confirm key');
-      this.mateTvClick(this.mateTvPointerX, this.mateTvPointerY);
-    }
-    return true;
   }
 
   private mateTvClick(localX: number, localY: number): void {
-    if (!this.mateTvMode || this.mateTvTouchId >= 0 ||
-        Date.now() - this.mateTvButtonAt < 500) { return; }
+    if (!this.mateTvMode) { return; }
+    if (this.mateTvTouchId >= 0) {
+      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV activate skipped active-touch');
+      return;
+    }
+    if (Date.now() - this.mateTvButtonAt < 500) {
+      // Consume only the semantic activation belonging to that raw sequence.
+      this.mateTvButtonAt = 0;
+      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV activate skipped duplicate-raw');
+      return;
+    }
     // Fallback only for devices that emit a click without any down/up events.
-    if (!this.canForwardInput('matetv-click')) { return; }
+    if (!this.canForwardInput('matetv-click')) {
+      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV activate skipped input-gate'); return;
+    }
     const point: MappedPoint = this.mapInputPoint(localX, localY);
-    if (!point.inside) { return; }
+    if (!point.inside) {
+      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV activate skipped outside'); return;
+    }
     this.discardPendingMouseMove();
     const button: number = this.mateTvRightClick ? 2 : 0;
     this.sendMouseNow(point.x, point.y, button, true);
