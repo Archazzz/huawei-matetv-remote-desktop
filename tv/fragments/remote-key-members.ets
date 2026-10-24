@@ -389,64 +389,24 @@
     }
   }
 
-  @Builder
-  private mateTvRemoteKeySettings() {
-    Column({ space: 10 }) {
-      Text('遥控器按键 · 当前电脑').fontSize(20).fontColor('#F4F8FA').width('100%')
-      Text(this.mateTvRemoteBindingStatus).fontSize(15).fontColor('#70E0C2').width('100%')
-      Row({ space: 12 }) {
-        Button(this.mateTvRemoteCapturing ? '请按菜单键或方向键' : '绑定遥控器')
-          .id('MateTvRemoteBinding').fontSize(16).height(42).focusable(true)
-          .onClick((): void => { this.mateTvStartRemoteCapture(); })
-          .onKeyEvent((event: KeyEvent): boolean => this.mateTvCaptureRemoteKey(event))
-        if (this.mateTvRemoteCandidateName.length > 0) {
-          Text(this.mateTvRemoteCandidateName).fontSize(15).fontColor('#B1C2CA')
-            .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          this.mateTvButton('确认绑定', (): void => { this.mateTvConfirmRemoteBinding(); })
-        }
-        if (this.mateTvRemoteDeviceId >= 0) {
-          this.mateTvButton('解除绑定', (): void => {
-            const profile: TvRemoteKeyProfile = parseTvRemoteKeyProfile(JSON.stringify(this.mateTvRemoteKeys));
-            profile.fingerprint = ''; profile.deviceName = ''; profile.voiceKeyCode = -1;
-            this.mateTvRemoteKeys = profile; this.mateTvVoiceStatus = '未检测';
-            this.mateTvSaveRemoteKeys();
-            this.mateTvRemoteDevicesChanged();
-          })
-        }
-      }.width('100%')
-      Row({ space: 12 }) {
-        Select(['↑ 上', '↓ 下', '← 左', '→ 右', '菜单键', '语音键'].map((label: string): SelectOption => ({ value: label })))
-          .selected(this.mateTvRemoteSelectedKey).value(['↑ 上', '↓ 下', '← 左', '→ 右', '菜单键', '语音键'][this.mateTvRemoteSelectedKey])
-          .font({ size: 18 }).layoutWeight(1)
-          .onSelect((index: number): void => {
-            if (index >= 0 && index < 6) { this.mateTvRemoteSelectedKey = index; this.mateTvCancelVoiceLearning(); }
-          })
-        this.mateTvButton('恢复本键默认', (): void => { this.mateTvResetRemoteKey(); })
-      }.width('100%')
-      if (this.mateTvRemoteSelectedKey === 5) {
-        Row({ space: 12 }) {
-          Button(this.mateTvVoiceLearning ? '请按下并松开语音键' : '检测语音键')
-            .id('MateTvVoiceLearning').fontSize(16).height(42).focusable(true)
-            .onClick((): void => { this.mateTvStartVoiceLearning(); })
-            .onKeyEvent((event: KeyEvent): boolean => this.mateTvLearnVoiceKey(event))
-          Text(this.mateTvVoiceStatus).fontSize(14).fontColor('#B1C2CA').layoutWeight(1).maxLines(2)
-        }.width('100%')
-      }
-      ForEach(['单击', '双击', '长按'], (label: string, gesture: number): void => {
-        Row({ space: 16 }) {
-          Text(label).fontSize(16).fontColor('#F4F8FA').width(70)
-          Select(this.mateTvRemoteGestureOptions(gesture).map((item: TvRemoteActionChoice): SelectOption => ({ value: item.label })))
-            .selected(this.mateTvRemoteGestureOptions(gesture).findIndex((item: TvRemoteActionChoice): boolean => item.id === this.mateTvRemoteGestureValue(gesture)))
-            .value(this.mateTvRemoteGestureOptions(gesture).find((item: TvRemoteActionChoice): boolean => item.id === this.mateTvRemoteGestureValue(gesture))?.label ?? '原按键')
-            .enabled(this.mateTvRemoteSelectedKey !== 5 || this.mateTvRemoteKeys.voiceKeyCode >= 0)
-            .font({ size: 16 }).onSelect((selected: number): void => {
-              const choices: TvRemoteActionChoice[] = this.mateTvRemoteGestureOptions(gesture);
-              if (selected >= 0 && selected < choices.length) {
-                this.mateTvSetRemoteAction(this.mateTvRemoteSelectedKey, gesture, choices[selected].id);
-              }
-            })
-        }.width('100%')
-      }, (label: string): string => label)
-      Text('双击间隔 0.28 秒 · 长按 0.65 秒；未设置时保留原按键响应。').fontSize(14).fontColor('#B1C2CA').width('100%')
-    }.width('100%')
+  private mateTvUnbindRemoteKeys(): void {
+    const profile: TvRemoteKeyProfile = parseTvRemoteKeyProfile(JSON.stringify(this.mateTvRemoteKeys));
+    profile.fingerprint = ''; profile.deviceName = ''; profile.voiceKeyCode = -1;
+    this.mateTvRemoteKeys = profile; this.mateTvVoiceStatus = '未检测';
+    this.mateTvSaveRemoteKeys();
+    this.mateTvRemoteDevicesChanged();
+  }
+
+  private mateTvSelectRemoteKey(index: number): void {
+    if (index >= 0 && index < 6) {
+      this.mateTvRemoteSelectedKey = index;
+      this.mateTvCancelVoiceLearning();
+    }
+  }
+
+  private mateTvChooseRemoteAction(gesture: number, selected: number): void {
+    const choices: TvRemoteActionChoice[] = this.mateTvRemoteGestureOptions(gesture);
+    if (selected >= 0 && selected < choices.length) {
+      this.mateTvSetRemoteAction(this.mateTvRemoteSelectedKey, gesture, choices[selected].id);
+    }
   }
