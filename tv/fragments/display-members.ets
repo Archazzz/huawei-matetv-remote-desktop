@@ -4,10 +4,39 @@
   @State private mateTvStreamStatus: string = '';
   @State private mateTvScaleStatus: string = '';
   private mateTvStreamTimer: number = -1;
+  @State private mateTvAudioGainDb: number = 0;
+  private mateTvAudioGainSession: number = 0;
+  private mateTvAudioGainApplied: number = -1;
+
+  private mateTvApplyAudioGain(): void {
+    if (!this.mateTvMode || !this.connected || this.cleanupStarted || this.sessionId <= 0) { return; }
+    if (this.mateTvAudioGainSession === this.sessionId &&
+        this.mateTvAudioGainApplied === this.mateTvAudioGainDb) { return; }
+    if (this.loader.setRemoteAudioGain(this.mateTvAudioGainDb, this.sessionId)) {
+      this.mateTvAudioGainSession = this.sessionId;
+      this.mateTvAudioGainApplied = this.mateTvAudioGainDb;
+    }
+  }
+
+  private mateTvSetAudioGain(value: number, persist: boolean): void {
+    if (!Number.isFinite(value)) { return; }
+    this.mateTvAudioGainDb = Math.max(0, Math.min(30, Math.round(value / 3) * 3));
+    this.mateTvApplyAudioGain();
+    if (persist && this.hostId !== '') {
+      const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
+      prefs.putSync('mateTvAudioGainDb:' + this.hostId, this.mateTvAudioGainDb);
+      prefs.flushSync();
+    }
+  }
 
   private mateTvInitStreamDefaults(): void {
     if (!this.mateTvMode) { return; }
     const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
+    const savedGain: number = prefs.getSync('mateTvAudioGainDb:' + this.hostId, 0) as number;
+    this.mateTvAudioGainDb = Number.isFinite(savedGain) ?
+      Math.max(0, Math.min(30, Math.round(savedGain / 3) * 3)) : 0;
+    this.mateTvAudioGainSession = 0;
+    this.mateTvAudioGainApplied = -1;
     // TvHome bypasses upstream HostListPage, which normally loads these
     // preferences. Restore them on every new TV session, not only migration.
     if (prefs.getSync('mateTvStreamDefaultsV2', false) !== true) {
@@ -93,7 +122,7 @@
   private mateTvDisplayPanel() {
     Column({ space: 14 }) {
       Row() {
-        Text('显示设置').fontSize(24).fontColor('#F4F8FA').layoutWeight(1)
+        Text('设置').fontSize(24).fontColor('#F4F8FA').layoutWeight(1)
         this.mateTvButton('完成', (): void => { this.mateTvCloseDisplay(); })
       }.width('100%')
       Text('轻扫滚动 · 停留后移动拖拽 · 静止长按松开右键').fontSize(14).fontColor('#B1C2CA')
@@ -103,6 +132,17 @@
       Text(this.mateTvStreamStatus).fontSize(16).fontColor('#70E0C2').width('100%')
       Scroll() {
         Column({ space: 14 }) {
+          Row() {
+            Text('远程声音').fontSize(20).fontColor('#F4F8FA').layoutWeight(1)
+            Text(this.mateTvAudioGainDb === 0 ? '原始音量' : '+' + this.mateTvAudioGainDb.toString() + ' dB')
+              .fontSize(16).fontColor('#70E0C2')
+          }.width('100%')
+          Slider({ value: this.mateTvAudioGainDb, min: 0, max: 30, step: 3 })
+            .width('100%').selectedColor('#70E0C2').blockColor('#D6F5ED')
+            .accessibilityText('远程声音增益')
+            .onChange((value: number, mode: SliderChangeMode): void => {
+              this.mateTvSetAudioGain(value, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
+            })
           Text('选择显示器').fontSize(20).fontColor('#F4F8FA').width('100%')
           ForEach(this.rustDeskDisplayCapabilities.displays, (screen: RustDeskDisplayInfo): void => {
             Button((screen.display === this.rustDeskDisplayCapabilities.currentDisplay ? '✓ ' : '') +

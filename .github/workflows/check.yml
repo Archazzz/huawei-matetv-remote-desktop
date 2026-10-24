@@ -30,6 +30,7 @@ jobs:
       - run: python scripts/test_decoder_recovery.py
       - run: python scripts/test_audio_interrupt_recovery.py
       - run: c++ -std=c++17 tests/tv-audio-level.test.cpp -o /tmp/tv-audio-test && /tmp/tv-audio-test
+      - run: c++ -std=c++17 tests/tv-remote-audio-gain.test.cpp -o /tmp/tv-audio-gain-test && /tmp/tv-audio-gain-test
       - run: c++ -std=c++17 tests/tv-decode-quality.test.cpp -o /tmp/tv-decode-test && /tmp/tv-decode-test
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --manifest-path .work/client/rustdesk_ffi/Cargo.toml --no-default-features protocol::session

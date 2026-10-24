@@ -212,6 +212,93 @@ napi_value NapiIsAudioPlaybackActive(napi_env env, napi_callback_info info) {'''
   setAudioFocusSession(sessionId: number): void {'''))
 
 
+def patch_remote_audio_gain(dest: Path) -> None:
+    cpp = dest / 'entry/src/main/cpp/audio'
+    header = cpp / 'audio_player.h'
+    text = replace_once(header.read_text(), '#include "matetv_audio_interrupt.h"',
+        '#include "matetv_audio_interrupt.h"\n#include "matetv_remote_audio_gain.h"')
+    text = replace_once(text, '    bool CanAcceptPcm() const;',
+        '    bool CanAcceptPcm() const;\n    bool SetRemoteGainDb(float db) { return remoteGain_.setDb(db); }')
+    text = replace_once(text, '    MateTv::AudioInterruptRecovery interruptRecovery_;',
+        '    MateTv::AudioInterruptRecovery interruptRecovery_;\n    MateTv::RemoteAudioGain remoteGain_;')
+    header.write_text(text)
+    source = cpp / 'audio_player.cpp'
+    text = replace_once(source.read_text(),
+        '    std::shared_ptr<AudioActivityState> activity = std::make_shared<AudioActivityState>();',
+        '    std::shared_ptr<AudioActivityState> activity = std::make_shared<AudioActivityState>();\n'
+        '    float remoteGainDb = 0.0f;')
+    text = replace_once(text, 'static Render::DecoderSessionIdentity OwnerForAudioHandle(int64_t handle) {',
+'''static float RemoteAudioGainFor(const Render::DecoderSessionIdentity& owner) {
+    std::lock_guard<std::mutex> lock(g_activeAudioMutex);
+    const ActiveAudioSlot* slot = AudioSlotLocked(owner);
+    return slot ? slot->remoteGainDb : 0.0f;
+}
+
+static Render::DecoderSessionIdentity OwnerForAudioHandle(int64_t handle) {''')
+    text = replace_once(text,
+        '    auto player = std::shared_ptr<AudioPlayer>(new AudioPlayer(owner, AudioActivityFor(owner)));',
+        '    auto player = std::shared_ptr<AudioPlayer>(new AudioPlayer(owner, AudioActivityFor(owner)));\n'
+        '    player->SetRemoteGainDb(RemoteAudioGainFor(owner));')
+    text = replace_once(text, '    slot->player = player;',
+        '    // Re-read under the publication lock: a setting may change during lazy Init.\n'
+        '    player->SetRemoteGainDb(slot->remoteGainDb);\n'
+        '    slot->player = player;')
+    text = replace_once(text, '    if (copied < audioDataSize) {',
+        '    // Only consumed remote PCM is amplified; the system mixer and local probe are untouched.\n'
+        '    remoteGain_.process(out, static_cast<size_t>(copied), channels_, sampleRate_);\n'
+        '    if (copied < audioDataSize) {')
+    text = replace_once(text, 'napi_value NapiPollAudioInterruptRecovery(napi_env env, napi_callback_info info) {',
+'''napi_value NapiSetRemoteAudioGain(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    napi_value result;
+    napi_get_boolean(env, false, &result);
+    double gainDb = 0;
+    int64_t sessionId = 0;
+    if (argc != 2 || napi_get_value_double(env, args[0], &gainDb) != napi_ok ||
+        napi_get_value_int64(env, args[1], &sessionId) != napi_ok || sessionId <= 0 ||
+        !std::isfinite(gainDb) || gainDb < 0 || gainDb > MateTv::RemoteAudioGain::kMaxDb) { return result; }
+    const auto owner = OwnerFromSessionArg(env, args[1]);
+    const auto ownerLease = Render::SharedSessionSinkOwnerLease().acquire(owner);
+    if (!ownerLease) { return result; }
+    int64_t handle = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_activeAudioMutex);
+        auto* slot = AudioSlotLocked(owner);
+        if (!slot) { return result; }
+        slot->remoteGainDb = static_cast<float>(gainDb);
+        handle = slot->handle;
+    }
+    const auto player = g_audioRegistry.acquire(handle, owner);
+    if (player) { player->SetRemoteGainDb(static_cast<float>(gainDb)); }
+    napi_get_boolean(env, true, &result);
+    return result;
+}
+
+napi_value NapiPollAudioInterruptRecovery(napi_env env, napi_callback_info info) {''')
+    text = replace_once(text, '    napi_create_function(env, "pollAudioInterruptRecovery",',
+        '    napi_create_function(env, "setRemoteAudioGain", NAPI_AUTO_LENGTH, NapiSetRemoteAudioGain, nullptr, &fn);\n'
+        '    napi_set_named_property(env, exports, "setRemoteAudioGain", fn);\n'
+        '    napi_create_function(env, "pollAudioInterruptRecovery",')
+    source.write_text(text)
+    for relative in ['entry/src/main/ets/types/rdpnapi.d.ts', 'entry/src/main/cpp/types/librdpnapi/index.d.ts']:
+        path = dest / relative
+        path.write_text(replace_once(path.read_text(),
+            '  export function pollAudioInterruptRecovery(foreground: boolean, sessionId: number): void;',
+            '  export function pollAudioInterruptRecovery(foreground: boolean, sessionId: number): void;\n'
+            '  export function setRemoteAudioGain(gainDb: number, sessionId: number): boolean;'))
+    loader = dest / 'entry/src/main/ets/services/ExtensionLoader.ets'
+    loader.write_text(replace_once(loader.read_text(),
+        '  pollAudioInterruptRecovery(foreground: boolean, sessionId: number): void {',
+        '''  setRemoteAudioGain(gainDb: number, sessionId: number): boolean {
+    if (sessionId <= 0 || !Number.isFinite(gainDb) || gainDb < 0 || gainDb > 30) { return false; }
+    try { return rdpnapi.setRemoteAudioGain(gainDb, sessionId); } catch (_) { return false; }
+  }
+
+  pollAudioInterruptRecovery(foreground: boolean, sessionId: number): void {'''))
+
+
 def patch_session(text: str) -> str:
     text = replace_once(text, '  private restoreFromBackground(): void {',
                         '  private performForegroundRestore(): void {')
@@ -242,6 +329,7 @@ def patch_session(text: str) -> str:
                         "    .id('RemoteDesktopPageRoot')\n    .onAreaChange((_old: Area, area: Area): void => { this.mateTvMeasureControlsRoot(area); })")
     text = replace_once(text, '      this.syncRustDeskPeerInputState(sessionId);',
                         '      this.loader.pollAudioInterruptRecovery(this.remoteKeyboardForeground() && !this.mateTvLeaving, sessionId);\n'
+                        '      this.mateTvApplyAudioGain();\n'
                         '      this.mateTvCheckVideoProgress();\n      this.syncRustDeskPeerInputState(sessionId);')
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
                         '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { if (source !== \'mouse\' && source !== \'mouseMove\') { hilog.info(RD_DOMAIN, RD_TAG, \'dropInput \' + source + \' tvPanel=1 \' + this.sessionInputOwner.debugString()); } return false; }')
@@ -482,6 +570,7 @@ def main():
         '            OH_LOG_INFO(LOG_APP, "[MateTvAudioLevel] stage=output peak=%{public}u rms=%{public}u", level.peak, level.rms);')
     audio.write_text(audio_text)
     patch_audio_interrupt_recovery(dest)
+    patch_remote_audio_gain(dest)
     runtime = dest / 'rustdesk_ffi/src/lib.rs'
     runtime_text = runtime.read_text()
     runtime_text = replace_once(runtime_text,

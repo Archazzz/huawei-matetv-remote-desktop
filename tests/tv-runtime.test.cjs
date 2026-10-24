@@ -554,3 +554,42 @@ test('Dictation Back consumes down/up, stops its editor before removal and resto
   page.mateTvTextOpen = true; page.mateTvCloseText(false);
   assert.equal(events.filter(e => e === 'pointer').length, 1); // leave/settings do not reclaim focus
 });
+
+test('Remote gain applies only to the live session, retries unavailable audio and persists per computer', () => {
+  const display = read('tv/fragments/display-members.ets');
+  const source = display.slice(0, display.indexOf('  private mateTvInitStreamDefaults()'));
+  const saved = new Map(), calls = [];
+  let available = false, flushes = 0;
+  const context = vm.createContext({
+    getContext: () => ({}),
+    preferences: { getPreferencesSync: () => ({
+      putSync: (key, value) => saved.set(key, value), flushSync: () => flushes++
+    }) }
+  });
+  vm.runInContext(stripTypeScriptTypes('class Gain {\n' + source.replace(/@State /g, '') +
+    '\n}\nglobalThis.Gain = Gain;'), context);
+  const page = new context.Gain();
+  Object.assign(page, { mateTvMode: true, connected: true, cleanupStarted: false,
+    sessionId: 1, hostId: 'computer-a', loader: { setRemoteAudioGain(db, id) {
+      calls.push([db, id]); return available;
+    } } });
+  page.mateTvSetAudioGain(24, false);
+  assert.equal(saved.size, 0);
+  available = true;
+  page.mateTvApplyAudioGain(); page.mateTvApplyAudioGain();
+  assert.deepEqual(calls, [[24, 1], [24, 1]]);
+  page.mateTvSetAudioGain(24, true);
+  assert.equal(saved.get('mateTvAudioGainDb:computer-a'), 24);
+  page.sessionId = 2; page.hostId = 'computer-b';
+  page.mateTvSetAudioGain(99, true);
+  assert.deepEqual(calls.at(-1), [30, 2]);
+  assert.equal(saved.get('mateTvAudioGainDb:computer-b'), 30);
+  assert.equal(saved.get('mateTvAudioGainDb:computer-a'), 24);
+  page.mateTvSetAudioGain(NaN, true);
+  assert.equal(flushes, 2);
+  const count = calls.length;
+  page.cleanupStarted = true; page.mateTvSetAudioGain(0, false);
+  assert.equal(calls.length, count);
+  page.cleanupStarted = false; page.connected = false; page.mateTvApplyAudioGain();
+  assert.equal(calls.length, count);
+});
