@@ -230,13 +230,34 @@ def main():
     decoder_text = replace_once(decoder_text, 'impl_->codecCtx->thread_count, kSoftwareDecodeMaxOutputEdge);',
         'impl_->codecCtx->thread_count, MateTv::decodeQuality.load(std::memory_order_relaxed) == 2 ? 8192 : 1600);')
     decoder.write_text(decoder_text)
-    bridge = dest / 'entry/src/main/cpp/rustdesk/rustdesk_bridge.cpp'
-    bridge_text = '#include "render/matetv_decode_quality.h"\n' + bridge.read_text()
-    bridge_text = replace_once(bridge_text, '            ffiCfg.imageQuality = cfg.rdImageQuality;',
-        '            MateTv::setDecodeQuality(cfg.rdImageQuality);\n            ffiCfg.imageQuality = cfg.rdImageQuality;')
-    bridge_text = replace_once(bridge_text, '            return rustdesk_set_image_quality(handle, quality);',
-        '            MateTv::setDecodeQuality(quality);\n            return rustdesk_set_image_quality(handle, quality);')
-    bridge.write_text(bridge_text)
+    # Resolution budget is a separate TV preference, never changed by bitrate tier.
+    napi = dest / 'entry/src/main/cpp/extensions/extension_loader_napi.cpp'
+    napi_text = '#include "render/matetv_decode_quality.h"\n' + napi.read_text()
+    napi_text = replace_once(napi_text, '/** NAPI: setRustDeskImageQuality(sessionId, quality): boolean */',
+        """napi_value NapiSetMateTvSourceResolution(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    bool source = true;
+    const bool accepted = argc == 1 && napi_get_value_bool(env, args[0], &source) == napi_ok;
+    if (accepted) MateTv::setDecodeQuality(source ? 2 : 1);
+    napi_value result;
+    napi_get_boolean(env, accepted, &result);
+    return result;
+}
+
+/** NAPI: setRustDeskImageQuality(sessionId, quality): boolean */""")
+    napi_text = replace_once(napi_text,
+        '    napi_set_named_property(env, exports, "setRustDeskImageQuality", fn);',
+        '    napi_set_named_property(env, exports, "setRustDeskImageQuality", fn);\n'
+        '    napi_create_function(env, "setMateTvSourceResolution", NAPI_AUTO_LENGTH, NapiSetMateTvSourceResolution, nullptr, &fn);\n'
+        '    napi_set_named_property(env, exports, "setMateTvSourceResolution", fn);')
+    napi.write_text(napi_text)
+    native_types = dest / 'entry/src/main/cpp/types/librdpnapi/index.d.ts'
+    native_types.write_text(replace_once(native_types.read_text(),
+        '  export function setRustDeskImageQuality(sessionId: number, quality: number): boolean;',
+        '  export function setRustDeskImageQuality(sessionId: number, quality: number): boolean;\n'
+        '  export function setMateTvSourceResolution(source: boolean): boolean;'))
     hardware = dest / 'entry/src/main/cpp/render/hw_decoder.cpp'
     hardware_text = hardware.read_text()
     hardware_text = replace_once(hardware_text,
@@ -261,7 +282,7 @@ def main():
         'live_tv_quality_uses_official_custom_quality_field')
     protocol_text = replace_once(protocol_text,
         'assert_eq!(option.get_image_quality(), ImageQuality::Best);',
-        'assert_eq!(option.get_image_quality(), ImageQuality::NotSet);\n                    assert_eq!(option.get_custom_image_quality(), 1000 << 8);')
+        'assert_eq!(option.get_image_quality(), ImageQuality::NotSet);\n                    assert_eq!(option.get_custom_image_quality(), 2000 << 8);')
     protocol.write_text(protocol_text + '\n' + (ROOT / 'tests/tv-quality.test.rs').read_text())
     for resource in (dest / 'AppScope/resources').glob('*/element/string.json'):
         data = json.loads(resource.read_text())

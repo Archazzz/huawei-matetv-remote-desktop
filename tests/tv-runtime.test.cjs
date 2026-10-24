@@ -241,6 +241,7 @@ test('TV startup restores saved streaming preferences after migration and respec
   const saved = new Map([['mateTvStreamDefaultsV2', true], ['rustdeskCodec', 5],
     ['rustdeskImageQuality', 2], ['fps', 30]]);
   const storage = new Map();
+  const resolutions = [];
   const context = vm.createContext({
     preferences: { getPreferencesSync() { return {
       getSync(key, fallback) { return saved.has(key) ? saved.get(key) : fallback; },
@@ -248,6 +249,7 @@ test('TV startup restores saved streaming preferences after migration and respec
     }; } }, getContext() {}, RUSTDESK_FPS_PREF_KEY: 'fps',
     normalizeRustDeskFps(value) { return value; },
     AppStorage: { setOrCreate(key, value) { storage.set(key, value); } },
+    rdpnapi: { setMateTvSourceResolution(source) { resolutions.push(source); return true; } },
   });
   const fragment = read('tv/fragments/display-members.ets').split('  @Builder')[0];
   vm.runInContext(stripTypeScriptTypes('class Prefs {\n' + fragment.replace(/@State /g, '') +
@@ -258,6 +260,15 @@ test('TV startup restores saved streaming preferences after migration and respec
   saved.set('rustdeskImageQuality', 1); saved.set('rustdeskCodec', 2);
   page.mateTvInitStreamDefaults();
   assert.equal(storage.get('rustdeskImageQuality'), 1); assert.equal(storage.get('rustdeskCodec'), 2);
+  assert.deepEqual(resolutions, [true, true]);
+  page.mateTvSetSourceResolution(false);
+  assert.equal(saved.get('rustdeskImageQuality'), 1);
+  assert.equal(saved.get('mateTvSourceResolution'), false);
+  saved.set('rustdeskImageQuality', 0);
+  page.mateTvInitStreamDefaults();
+  assert.equal(page.mateTvSourceResolution, false);
+  assert.equal(resolutions.at(-1), false);
+  assert.equal(storage.get('rustdeskImageQuality'), 0);
 });
 
 

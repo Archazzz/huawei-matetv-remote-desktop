@@ -1,4 +1,6 @@
   @State private mateTvDisplayOpen: boolean = false;
+  @State private mateTvSourceResolution: boolean = true;
+  @State private mateTvResolutionStatus: string = '';
   @State private mateTvStreamStatus: string = '';
   @State private mateTvScaleStatus: string = '';
   private mateTvStreamTimer: number = -1;
@@ -15,6 +17,13 @@
       prefs.putSync('mateTvStreamDefaultsV2', true);
       prefs.flushSync();
     }
+    if (prefs.getSync('mateTvBandwidthDefaultsV3', false) !== true) {
+      prefs.putSync('rustdeskImageQuality', 2);
+      prefs.putSync('mateTvBandwidthDefaultsV3', true);
+      prefs.flushSync();
+    }
+    this.mateTvSourceResolution = prefs.getSync('mateTvSourceResolution', true) === true;
+    rdpnapi.setMateTvSourceResolution(this.mateTvSourceResolution);
     const codec: number = prefs.getSync('rustdeskCodec', 5) as number;
     const quality: number = prefs.getSync('rustdeskImageQuality', 2) as number;
     this.rustdeskCodec = codec >= 0 && codec <= 5 ? codec : 5;
@@ -26,10 +35,19 @@
 
   }
 
+  private mateTvSetSourceResolution(source: boolean): void {
+    if (!rdpnapi.setMateTvSourceResolution(source)) { return; }
+    this.mateTvSourceResolution = source;
+    const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
+    prefs.putSync('mateTvSourceResolution', source);
+    prefs.flushSync();
+  }
+
   private mateTvRefreshStreamStatus(): void {
     if (!this.connected || this.sessionId <= 0) { return; }
     const stats: RustDeskDiagnosticsSnapshot = this.loader.getSessionDiagnostics(this.sessionId);
     if (stats.sessionId !== this.sessionId || !stats.sessionActive) { return; }
+    this.mateTvResolutionStatus = '电脑回传 ' + stats.width.toString() + ' × ' + stats.height.toString();
     const names: string[] = ['H.264', 'H.265', 'VP8', 'VP9', 'AV1'];
     const codec: string = stats.codec >= 0 && stats.codec < names.length ? names[stats.codec] : '等待编码';
     this.mateTvStreamStatus = codec + ' · ' + stats.width.toString() + '×' + stats.height.toString() +
@@ -65,16 +83,11 @@
     this.mateTvStreamTimer = -1;
   }
 
-  private mateTvQuality(quality: number, fps: number): void {
-    this.setRustDeskImageQualityPref(quality);
-    this.setRustDeskFpsPref(fps);
-  }
-
   @Builder
   private mateTvDisplayPanel() {
     Column({ space: 14 }) {
       Row() {
-        Text('显示器与画质').fontSize(24).fontColor('#F4F8FA').layoutWeight(1)
+        Text('显示设置').fontSize(24).fontColor('#F4F8FA').layoutWeight(1)
         this.mateTvButton('完成', (): void => { this.mateTvCloseDisplay(); })
       }.width('100%')
       Text('轻扫滚动 · 停留片刻再移动可拖拽 · 短按单击').fontSize(14).fontColor('#B1C2CA')
@@ -97,6 +110,14 @@
           if (this.rustDeskDisplayCapabilities.displays.length === 0) {
             Text('正在等待电脑提供显示器列表…').fontSize(20).fontColor('#B1C2CA')
           }
+          Text('分辨率').fontSize(20).fontColor('#F4F8FA').width('100%')
+          Text(this.mateTvResolutionStatus).fontSize(16).fontColor('#70E0C2').width('100%')
+          Row({ space: 12 }) {
+            this.mateTvButton((this.mateTvSourceResolution ? '✓ ' : '') + '与电脑一致', (): void => { this.mateTvSetSourceResolution(true); })
+            this.mateTvButton((!this.mateTvSourceResolution ? '✓ ' : '') + '降低软解分辨率', (): void => { this.mateTvSetSourceResolution(false); })
+          }
+          Text('原画保留电脑像素，最多约 829 万像素。软解吃力时可降低分辨率；不会更改电脑显示设置。')
+            .fontSize(14).fontColor('#B1C2CA').width('100%')
           Text('画面比例').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
             this.mateTvButton('短边铺满', (): void => { this.mateTvSetViewFill(true); })
@@ -106,14 +127,15 @@
           Text(this.mateTvScaleStatus).fontSize(15).fontColor('#B1C2CA').width('100%')
           Text('原始像素不放大画面；超出电视的部分仍可用右下角摇杆移动。')
             .fontSize(15).fontColor('#B1C2CA').width('100%')
-          Text('画质与流畅度').fontSize(20).fontColor('#F4F8FA').width('100%')
+          Text('码率策略').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
-            this.mateTvButton('跟手 · 60 帧上限', (): void => { this.mateTvQuality(1, 60); })
-            this.mateTvButton('局域网超清 · 30 帧', (): void => { this.mateTvQuality(2, 30); })
-            this.mateTvButton('省带宽 · 30 帧上限', (): void => { this.mateTvQuality(0, 30); })
+            this.mateTvButton((this.rustdeskImageQuality === 2 ? '✓ ' : '') + '不设固定码率上限', (): void => { this.setRustDeskImageQualityPref(2); })
+            this.mateTvButton((this.rustdeskImageQuality === 1 ? '✓ ' : '') + '均衡', (): void => { this.setRustDeskImageQualityPref(1); })
+            this.mateTvButton((this.rustdeskImageQuality === 0 ? '✓ ' : '') + '省带宽', (): void => { this.setRustDeskImageQualityPref(0); })
           }
-          Text('当前偏好：' + rustDeskQualityName(this.rustdeskImageQuality) + ' · ' +
-            (this.rustdeskImageQuality === 2 ? '30' : this.rustdeskFps.toString()) + ' 帧上限')
+          Text('高带宽模式优先保留细节，实际码率随画面和网络自适应。当前电脑端不提供指定 Mbps 的硬上限。')
+            .fontSize(14).fontColor('#B1C2CA').width('100%')
+          Text('帧率上限：' + (this.rustdeskImageQuality === 2 ? '30' : this.rustdeskFps.toString()) + ' 帧/秒')
             .fontSize(16).fontColor('#B1C2CA').width('100%')
           Text('编码').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
@@ -121,7 +143,7 @@
             this.mateTvButton('H.264 优先', (): void => { this.setRustDeskCodecPref(4); })
             this.mateTvButton('VP9 兼容', (): void => { this.setRustDeskCodecPref(2); })
           }
-          Text('超清档提高编码码率请求，适合高速局域网；外网可切跟手或省带宽。静止画面码率会降低，不支持的编码会回退。')
+          Text('优先使用 H.265 硬件解码；不支持时自动回退兼容编码。')
             .fontSize(15).fontColor('#B1C2CA').width('100%')
         }.width('100%')
       }.layoutWeight(1).width('100%')

@@ -11,7 +11,7 @@ mod mate_tv_quality_tests {
         // The host consults custom_image_quality ONLY if image_quality is NotSet.
         assert_eq!(decoded.get_image_quality(), ImageQuality::NotSet);
         let ratio = ((decoded.get_custom_image_quality() >> 8 & 0xFFF) * 2) as f32 / 100.0;
-        assert_eq!(ratio, 20.0);
+        assert_eq!(ratio, 40.0);
         assert_eq!(decoded.get_custom_fps(), 0);
         assert!(!decoded.has_supported_decoding());
     }
