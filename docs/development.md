@@ -48,6 +48,19 @@ bash scripts/build_hap.sh .work/client
 
 ## 修改与发布
 
+### 为自己的电视预置电脑
+
+可将只包含 `id`（稳定英文标识）、`label`、`address`、`port` 的 JSON 数组保存在被忽略的 `local/tv-computers.json`，然后执行：
+
+```sh
+python3 scripts/prepare_client.py --computers local/tv-computers.json
+bash scripts/build_hap.sh .work/client
+```
+
+应用在本机存储就绪后逐条导入，同一预置标识只处理一次，同地址和端口不会重复添加。导入后在“管理与高级连接”修改或删除电脑，不会被下次启动覆盖或恢复。配置不能包含密码，连接仍使用正常认证流程。
+
+**此构建包含私人设备地址，不要公开上传生成源码或 HAP。** 不传 `--computers` 时生成空预置列表；已安装电视中保存的电脑不会因此删除。
+
 - 修改 `tv/overlay` 或 `tv/fragments`，然后重新执行准备脚本；只修改生成目录会在下次准备时丢失改动。
 - `.work`、`local`、调试 HAP、签名证书和账号配置均被 Git 忽略。
 - 打包发布前保留对应固定上游源码、补丁、原生依赖来源和许可证，记录构建工具版本。
