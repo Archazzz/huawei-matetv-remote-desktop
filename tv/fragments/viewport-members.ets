@@ -1,4 +1,4 @@
-  @State private mateTvViewFill: boolean = true;
+  @State private mateTvViewMode: LocalViewScaleMode = 'fill';
   @State private mateTvViewX: number = 50;
   @State private mateTvViewY: number = 50;
   @State private mateTvViewCanX: boolean = false;
@@ -20,7 +20,13 @@
 
   private mateTvSetViewFill(fill: boolean): void {
     this.mateTvCancelDrag();
-    this.mateTvViewFill = fill;
+    this.mateTvViewMode = fill ? 'fill' : 'fit';
+    this.resetCanvasToDisplayDefault();
+  }
+
+  private mateTvSetViewNative(): void {
+    this.mateTvCancelDrag();
+    this.mateTvViewMode = '100';
     this.resetCanvasToDisplayDefault();
   }
 

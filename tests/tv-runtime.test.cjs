@@ -201,3 +201,13 @@ test('Remote confirm activation targets the last pointer position', () => {
   page.mateTvActivate({ source: 4, x: 0, y: 0 });
   assert.deepEqual(events, [['down', 140, 80, 0], ['up', 140, 80, 0]]);
 });
+
+test('Native pixels avoid enlargement and retain a horizontal dock for an ultrawide source', () => {
+  const { page, viewport: v } = createViewport(5120, 1440, 3840, 2160);
+  page.mateTvSetViewNative();
+  const fit = Math.min(v.surfaceWidth / v.sourceWidth, v.surfaceHeight / v.sourceHeight);
+  close(page.canvasTransform.scale * fit, 1);
+  assert.equal(page.mateTvViewCanX, true); assert.equal(page.mateTvViewCanY, false);
+  page.mateTvPanViewport(true, 100);
+  close(page.canvasTransform.panX, -640);
+});

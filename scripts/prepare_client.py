@@ -98,7 +98,7 @@ def patch_session(text: str) -> str:
                         ".align(this.shouldShowRustDeskMultiCanvasPreview() ? Alignment.Start : Alignment.Center)",
                         ".align(this.mateTvTextOpen || this.shouldShowRustDeskMultiCanvasPreview() ? Alignment.Start : Alignment.Center)")
     text = replace_once(text, '  private currentCanvasDisplayDefault(viewport: CanvasViewport): CanvasTransform {',
-                        "  private currentCanvasDisplayDefault(viewport: CanvasViewport): CanvasTransform {\n    if (this.mateTvMode) { return baseCanvasTransform(this.mateTvTextOpen || !this.mateTvViewFill ? 'fit' : 'fill', 100, viewport, this.canvasRotationQuarterTurns); }")
+                        "  private currentCanvasDisplayDefault(viewport: CanvasViewport): CanvasTransform {\n    if (this.mateTvMode) { return baseCanvasTransform(this.mateTvTextOpen ? 'fit' : this.mateTvViewMode, 100, viewport, this.canvasRotationQuarterTurns); }")
     text = replace_once(text, '    this.updateRendererViewportCacheForCanvasTransform(viewport);',
                         '    this.updateRendererViewportCacheForCanvasTransform(viewport);\n    this.mateTvSyncViewport(viewport);')
     for method in ['applyRemotePointerCanvasFollow(remoteX: number, remoteY: number)',

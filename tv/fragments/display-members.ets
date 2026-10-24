@@ -1,20 +1,21 @@
   @State private mateTvDisplayOpen: boolean = false;
   @State private mateTvStreamStatus: string = '';
+  @State private mateTvScaleStatus: string = '';
   private mateTvStreamTimer: number = -1;
 
   private mateTvInitStreamDefaults(): void {
     if (!this.mateTvMode) { return; }
     const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
-    if (prefs.getSync('mateTvStreamDefaultsV1', false) === true) { return; }
-    // This Mac supports HEVC hardware encoding but not AVC encoding. Advertise
-    // HEVC as well as AVC/VP9 fallbacks instead of falling back directly to VP9.
+    if (prefs.getSync('mateTvStreamDefaultsV2', false) === true) { return; }
+    // Prefer text clarity on a large TV. HEVC is negotiated with the host;
+    // unsupported hosts/decoders retain the existing codec fallback path.
     this.rustdeskCodec = 5;
-    this.rustdeskImageQuality = 1;
-    this.rustdeskFps = 60;
+    this.rustdeskImageQuality = 2;
+    this.rustdeskFps = 30;
     this.persistSessionPref('rustdeskCodec', 5);
-    this.persistSessionPref('rustdeskImageQuality', 1);
-    this.persistSessionPref(RUSTDESK_FPS_PREF_KEY, 60);
-    prefs.putSync('mateTvStreamDefaultsV1', true);
+    this.persistSessionPref('rustdeskImageQuality', 2);
+    this.persistSessionPref(RUSTDESK_FPS_PREF_KEY, 30);
+    prefs.putSync('mateTvStreamDefaultsV2', true);
     prefs.flushSync();
   }
 
@@ -27,6 +28,9 @@
     this.mateTvStreamStatus = codec + ' · ' + stats.width.toString() + '×' + stats.height.toString() +
       ' · 收到 ' + stats.receivedFps.toFixed(0) + ' 帧/秒 · 显示 ' + stats.displayFps.toFixed(0) +
       ' 帧/秒 · ' + (stats.bitrateKbps / 1000).toFixed(1) + ' Mbps · 往返 ' + stats.latencyMs.toString() + ' ms';
+    const scale: number = this.remoteLocalScalePercent();
+    this.mateTvScaleStatus = scale > 0 ? '本地显示倍率 ' + scale.toString() + '%' +
+      (scale > 100 ? ' · 铺满会放大像素，细字可切“原始像素”' : '') : '';
     this.rustDeskDisplayCapabilities = this.loader.getRustDeskDisplayCapabilities(this.sessionId);
   }
 
@@ -78,6 +82,15 @@
           if (this.rustDeskDisplayCapabilities.displays.length === 0) {
             Text('正在等待电脑提供显示器列表…').fontSize(20).fontColor('#B1C2CA')
           }
+          Text('画面比例').fontSize(20).fontColor('#F4F8FA').width('100%')
+          Row({ space: 12 }) {
+            this.mateTvButton('短边铺满', (): void => { this.mateTvSetViewFill(true); })
+            this.mateTvButton('完整画面', (): void => { this.mateTvSetViewFill(false); })
+            this.mateTvButton('原始像素', (): void => { this.mateTvSetViewNative(); })
+          }
+          Text(this.mateTvScaleStatus).fontSize(15).fontColor('#B1C2CA').width('100%')
+          Text('原始像素不放大画面；超出电视的部分仍可用常驻滑杆移动。')
+            .fontSize(15).fontColor('#B1C2CA').width('100%')
           Text('画质与流畅度').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
             this.mateTvButton('跟手 · 60 帧上限', (): void => { this.mateTvQuality(1, 60); })

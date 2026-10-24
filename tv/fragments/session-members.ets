@@ -263,7 +263,7 @@
     Column({ space: 8 }) {
       Row({ space: 8 }) {
         this.mateTvButton('切换电脑', (): void => { this.goBack(); })
-        this.mateTvButton(this.mateTvViewFill ? '完整画面' : '短边铺满', (): void => { this.mateTvSetViewFill(!this.mateTvViewFill); })
+        this.mateTvButton(this.mateTvViewMode === 'fill' ? '完整画面' : '短边铺满', (): void => { this.mateTvSetViewFill(this.mateTvViewMode !== 'fill'); })
         this.mateTvButton('显示器 / 画质', (): void => { this.mateTvOpenDisplay(); })
         Button(this.mateTvRightClick ? '点选位置右击' : '右键', { type: ButtonType.Normal })
           .fontSize(16).height(38).padding({ left: 14, right: 14 }).borderRadius(10)
