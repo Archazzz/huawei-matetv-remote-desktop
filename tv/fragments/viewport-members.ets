@@ -85,7 +85,7 @@
   @Builder
   private mateTvViewportDock() {
     if (this.mateTvViewCanX || this.mateTvViewCanY) {
-      Stack() {
+      Stack({ alignContent: Alignment.Center }) {
         Circle().width(112).height(112).fill('#C2192A34')
           .stroke('#507786').strokeWidth(1).hitTestBehavior(HitTestMode.None)
         Text('‹').fontSize(26).fontColor(this.mateTvViewCanX ? '#D2E5E9' : '#48606A')
@@ -104,7 +104,8 @@
             .onActionUpdate((event: GestureEvent): void => { this.mateTvUpdateJoystick(event); })
             .onActionEnd((): void => { this.mateTvStopJoystick(); })
             .onActionCancel((): void => { this.mateTvStopJoystick(); }))
-      }.width(112).height(112).align(Alignment.BottomEnd).margin({ right: 24, bottom: 24 })
+      }.width(112).height(112)
+        .position({ x: Math.max(12, this.surfaceWidth - 136), y: Math.max(12, this.surfaceHeight - 136) })
         .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(150)
     }
   }
