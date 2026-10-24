@@ -17,11 +17,15 @@ class SnapshotStore:
             if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077:
                 raise ValueError("notification state must be a private regular file")
         self.connection = sqlite3.connect(path, check_same_thread=False)
-        self.connection.execute("PRAGMA journal_mode=DELETE")
-        self.connection.execute("PRAGMA synchronous=FULL")
-        self.connection.execute("PRAGMA secure_delete=ON")
-        self.connection.execute("CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)")
-        self.connection.commit()
+        try:
+            self.connection.execute("PRAGMA journal_mode=DELETE")
+            self.connection.execute("PRAGMA synchronous=FULL")
+            self.connection.execute("PRAGMA secure_delete=ON")
+            self.connection.execute("CREATE TABLE IF NOT EXISTS snapshot (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)")
+            self.connection.commit()
+        except BaseException:
+            self.connection.close()
+            raise
         self.last_raw = None
 
     def load(self):

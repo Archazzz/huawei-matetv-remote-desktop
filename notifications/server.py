@@ -174,20 +174,24 @@ class Inbox:
         self.state = SnapshotStore(config.state_path) if config.state_path is not None else None
         self.tv_identity = hashlib.sha256(config.tv_token.encode()).hexdigest()
         if self.state is not None:
-            saved = self.state.load()
-            if saved is not None:
-                if saved.get("version") != 1:
-                    raise ValueError("unsupported persistent notification state")
-                self.events = saved["events"]
-                self.cursor = saved["cursor"]
-                self.pruned_through = saved["prunedThrough"]
-                self.stream_id = saved["streamId"]
-                if saved.get("tvIdentity") == self.tv_identity:
-                    self.registration = saved["registration"]
-                    self.clicks = saved["clicks"]
-                    self.jobs = saved["jobs"]
-            self._expire(self.clock())
-            self._save()
+            try:
+                saved = self.state.load()
+                if saved is not None:
+                    if saved.get("version") != 1:
+                        raise ValueError("unsupported persistent notification state")
+                    self.events = saved["events"]
+                    self.cursor = saved["cursor"]
+                    self.pruned_through = saved["prunedThrough"]
+                    self.stream_id = saved["streamId"]
+                    if saved.get("tvIdentity") == self.tv_identity:
+                        self.registration = saved["registration"]
+                        self.clicks = saved["clicks"]
+                        self.jobs = saved["jobs"]
+                self._expire(self.clock())
+                self._save()
+            except BaseException:
+                self.state.close()
+                raise
 
     def _save(self):
         if self.state is not None:
@@ -507,10 +511,21 @@ class NotificationServer(ThreadingHTTPServer):
         self.slots = threading.BoundedSemaphore(16)
         self.push_stop = threading.Event()
         self.push_worker = None
-        super().__init__((config.listen_host, config.listen_port), Handler)
-        if sender is not None or config.state_path is not None:
-            self.push_worker = threading.Thread(target=self._push_loop, daemon=True)
-            self.push_worker.start()
+        try:
+            super().__init__((config.listen_host, config.listen_port), Handler)
+            if sender is not None or config.state_path is not None:
+                self.push_worker = threading.Thread(target=self._push_loop, daemon=True)
+                self.push_worker.start()
+        except BaseException:
+            # No request worker can be running before serve_forever. Release the
+            # successfully opened database if socket binding or worker startup fails.
+            try:
+                if hasattr(self, "socket"):
+                    super().server_close()
+            finally:
+                if self.inbox.state is not None:
+                    self.inbox.state.close()
+            raise
 
     def _push_loop(self):
         while not self.push_stop.wait(1):
