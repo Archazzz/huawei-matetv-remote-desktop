@@ -19,19 +19,22 @@ function fixture() {
     HostSyncService: { getInstance: () => ({ getAllHosts: () => hosts }) },
     TV_COMPUTER_PRESETS: [{id:'mini',address:'private-host',port:21118}],
     notificationManager: { isNotificationEnabled: async () => false },
-    http: { RequestMethod: {GET:'GET'}, HttpDataType: {STRING:'STRING'}, createHttp: () => ({
-      request: async (url,options) => { calls.push(['request',url,options]); return typeof reply === 'function' ? reply() : reply; }, destroy: () => {} }) },
+    pushService: {getToken:async()=> 'test-push-token'},
+    http: { RequestMethod: {GET:'GET',POST:'POST'}, HttpDataType: {STRING:'STRING'}, createHttp: () => ({
+      request: async (url,options) => { calls.push(['request',url,options]); return typeof reply === 'function' ? reply(url,options) : reply; }, destroy: () => {} }) },
     setTimeout: (f,d) => { timers.push([f,d]); return timers.length; }, clearTimeout: () => {},
     router: { back: () => calls.push(['back']) },
     hilog: {info:()=>{},warn:()=>{}}, RD_DOMAIN:0,RD_TAG:'test',
   };
   vm.createContext(box);
+  vm.runInContext(compile(read(prefix+'TvPushPolicy.ets')),box);
   vm.runInContext(compile(read(prefix+'TvNotificationPolicy.ets')) + '\nthis.policy={validNotificationEvent,validNotificationBatch,resolveNotificationHost,TvNotificationRoute};',box);
   vm.runInContext(compile(read(prefix+'TvNotificationService.ets')) + '\nthis.service=TvNotificationService.getInstance();',box);
   const service=box.service;
   service.scope='scope'; service.foreground=true; service.enabled=true;
   service.config={endpoint:'https://private-host:21121',token:'private-token',publicKeyHash:'pin'};
-  service.caPath='/sandbox/ca.pem'; service.store={putSync:()=>{},flushSync:()=>{}};
+  service.caPath='/sandbox/ca.pem'; service.store={putSync:(k,v)=>state.set(k,v),flushSync:()=>{}};
+  service.context={};service.installationId='12345678-1234-1234-1234-123456789abc';
   return {box,service,calls,hosts,timers,policy:box.policy,setReply:r=>reply=r};
 }
 function event(overrides={}) {
@@ -100,4 +103,62 @@ test('a later explicit click replaces a pending switch without parallel disconne
  f.service.events=[event(),event({eventId:'event-2',hostId:'second'})];
  f.service.click('mini/event-1');assert.equal(f.service.routeAction('old',true,false),'leave');
  f.service.click('mini/event-2');assert.equal(f.service.routeAction('old',true,true),'wait');assert.equal(f.service.pendingHost(),'second');
+});
+
+test('Push Kit rights error remains disabled and exposes only the numeric diagnostic',async()=>{
+ const f=fixture();f.box.notificationManager.isNotificationEnabled=async()=>true;
+ f.box.pushService.getToken=async()=>{throw {code:1000900012,message:'sensitive'};};
+ await f.service.setBackgroundEnabled(true);
+ assert.equal(f.service.isBackgroundEnabled(),false);assert.match(f.service.backgroundState(),/1000900012/);
+ assert.doesNotMatch(f.service.backgroundState(),/sensitive/);assert.equal(f.calls.length,0);
+});
+test('background registration pins TLS and distinguishes pending cloud setup',async()=>{
+ const f=fixture();f.box.notificationManager.isNotificationEnabled=async()=>true;
+ f.setReply({responseCode:200,result:JSON.stringify({registered:true,cloudConfigured:false})});
+ await f.service.setBackgroundEnabled(true);
+ assert.equal(f.service.isBackgroundEnabled(),true);assert.match(f.service.backgroundState(),/等待中转/);
+ const [_,url,o]=f.calls[0];assert.match(url,/\/v1\/push\/register$/);assert.equal(o.maxRedirects,0);
+ assert.equal(o.certificatePinning.publicKeyHash,'pin');assert.equal(o.usingProxy,false);
+ assert.equal(JSON.parse(o.extraData).scope,'scope');assert.equal(JSON.parse(o.extraData).previewMode,'full');
+});
+test('forged or disabled cloud Wants never resolve or connect',async()=>{
+ const f=fixture();const nonce='N'.repeat(43);
+ f.service.receiveWant({parameters:{screenLinkPushNonce:nonce,screenLinkInstallationId:f.service.installationId}});
+ await Promise.resolve();assert.equal(f.calls.length,0);assert.equal(f.service.route.pendingKey,'');
+ f.service.backgroundEnabled=true;
+ f.service.receiveWant({parameters:{screenLinkPushNonce:nonce,screenLinkInstallationId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'}});
+ await Promise.resolve();assert.equal(f.calls.length,0);
+});
+test('cloud click must resolve authenticated matching scope before normal host routing',async()=>{
+ const f=fixture();f.service.backgroundEnabled=true;f.hosts.push(host());
+ f.service.pendingPushNonce='N'.repeat(43);f.service.pendingPushInstallation=f.service.installationId;
+ f.setReply({responseCode:200,result:JSON.stringify({event:event(),streamId:'stream',scope:'scope'})});
+ await f.service.resolvePushClick();assert.equal(f.service.pendingHost(),'saved-host');
+ assert.equal(f.service.cursor,0);assert.equal(f.service.inbox().length,1);
+ assert.equal(JSON.parse(f.calls[0][2].extraData).scope,'scope');
+ f.service.consume();f.service.pendingPushNonce='M'.repeat(43);f.service.pendingPushInstallation=f.service.installationId;
+ f.setReply({responseCode:200,result:JSON.stringify({event:event(),streamId:'stream',scope:'other'})});
+ await f.service.resolvePushClick();assert.equal(f.service.route.pendingKey,'');
+});
+test('disabling during in-flight resolution rejects late navigation and persists revocation',async()=>{
+ const f=fixture();f.service.backgroundEnabled=true;f.hosts.push(host());
+ f.service.pendingPushNonce='N'.repeat(43);f.service.pendingPushInstallation=f.service.installationId;
+ let resolve;f.setReply(url=>url.endsWith('/resolve')?new Promise(r=>resolve=r):Promise.resolve({responseCode:503,result:'unavailable'}));
+ const resolving=f.service.resolvePushClick();await f.service.setBackgroundEnabled(false);
+ resolve({responseCode:200,result:JSON.stringify({event:event(),streamId:'stream',scope:'scope'})});await resolving;
+ assert.equal(f.service.route.pendingKey,'');assert.equal(f.service.pushRevokePending,true);
+ assert.equal(f.service.isBackgroundEnabled(),false);assert.equal(f.box.AppStorage.get('irrelevant'),undefined);
+});
+test('registration completed after disable is revoked again instead of re-enabling',async()=>{
+ const f=fixture();f.box.notificationManager.isNotificationEnabled=async()=>true;let register;
+ f.setReply(url=>url.endsWith('/register')?new Promise(r=>register=r):Promise.resolve({responseCode:200,result:'{"revoked":true}'}));
+ const enabling=f.service.setBackgroundEnabled(true);while(!register) await Promise.resolve();
+ await f.service.setBackgroundEnabled(false);register({responseCode:200,result:'{"registered":true,"cloudConfigured":true}'});await enabling;
+ assert.equal(f.service.isBackgroundEnabled(),false);assert.equal(f.calls.filter(c=>c[1].endsWith('/revoke')).length,2);
+});
+test('lost registration response queues revocation so orphan cloud subscription is not retained',async()=>{
+ const f=fixture();f.box.notificationManager.isNotificationEnabled=async()=>true;
+ f.setReply({responseCode:503,result:'unavailable'});await f.service.setBackgroundEnabled(true);
+ assert.equal(f.service.isBackgroundEnabled(),false);assert.equal(f.service.pushRevokePending,true);
+ assert.equal(f.calls.length,2);
 });

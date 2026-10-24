@@ -11,11 +11,16 @@ struct TvNotifications {
   @State private status: string = '';
   @State private receiving: boolean = false;
   @State private permissionStatus: string = '';
+  @State private backgroundEnabled: boolean = false;
+  @State private backgroundBusy: boolean = false;
+  @State private backgroundStatus: string = '';
   private routing: boolean = false;
   private service: TvNotificationService = TvNotificationService.getInstance();
   aboutToAppear(): void { this.service.initialize(getContext(this) as common.UIAbilityContext); this.refresh(); }
   private refresh(): void {
     this.events = this.service.inbox(); this.status = this.service.status(); this.receiving = this.service.isEnabled();
+    this.backgroundEnabled = this.service.isBackgroundEnabled();
+    this.backgroundBusy = this.service.isBackgroundBusy(); this.backgroundStatus = this.service.backgroundState();
     if (!this.routing && this.service.pendingHost().length > 0) { this.routing = true; router.back(); }
   }
   private contentState(event: TvNotificationEvent): string {
@@ -38,7 +43,13 @@ struct TvNotifications {
         Button('清空').onClick((): void => { this.service.clearHistory(); })
       }.width('100%')
       Text(this.status).fontSize(18).fontColor('#AFC4CC')
-      Text('目前仅在屏间前台接收；后台推送尚未接入。').fontSize(16).fontColor('#AFC4CC')
+      Row({ space: 16 }) {
+        Button(this.backgroundBusy ? '检查中…' : (this.backgroundEnabled ? '关闭后台推送' : '开启后台推送'))
+          .enabled(this.service.configured() && (!this.backgroundBusy || this.backgroundEnabled))
+          .onClick((): void => { void this.service.setBackgroundEnabled(!this.backgroundEnabled); })
+        Text(this.backgroundStatus).fontSize(16).fontColor('#AFC4CC').layoutWeight(1)
+      }.width('100%')
+      Text('后台提醒通过华为推送服务传送通知内容。').fontSize(15).fontColor('#AFC4CC')
       if (this.permissionStatus.length > 0) { Text(this.permissionStatus).fontSize(16).fontColor('#AFC4CC') }
       Scroll() {
         Column({ space: 14 }) {
