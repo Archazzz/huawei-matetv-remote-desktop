@@ -66,6 +66,7 @@ def patch_session(text: str) -> str:
     members += (ROOT / 'tv/fragments/display-members.ets').read_text()
     members += (ROOT / 'tv/fragments/lifecycle-members.ets').read_text()
     members += (ROOT / 'tv/fragments/viewport-members.ets').read_text()
+    members += (ROOT / 'tv/fragments/corner-controls.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
                         '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { if (source !== \'mouse\' && source !== \'mouseMove\') { hilog.info(RD_DOMAIN, RD_TAG, \'dropInput \' + source + \' tvPanel=1 \' + this.sessionInputOwner.debugString()); } return false; }')
@@ -83,7 +84,7 @@ def patch_session(text: str) -> str:
     text = replace_once(text, '      if (this.connected && this.shouldShowRemoteSessionTopBar()) {',
                         '      if (!this.mateTvMode && this.connected && this.shouldShowRemoteSessionTopBar()) {')
     text = replace_once(text, "            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');",
-                        "            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
+                        "            this.mateTvLoadControls();\n            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
     text = replace_once(text, '  onBackPress(): boolean {',
                         '  onBackPress(): boolean {\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }\n    if (this.mateTvMode) { if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.goBack(); } return true; }')
     text = replace_once(text, '  private goBack(): void {',
@@ -127,11 +128,8 @@ def patch_session(text: str) -> str:
     text = replace_once(text, "        .focusable(false)\n        .focusOnTouch(false)\n        .defaultFocus(false)",
                         "        .focusable(this.mateTvMode)\n        .focusOnTouch(this.mateTvMode)\n        .defaultFocus(this.mateTvMode)")
     anchor = '      // Keep the file-transfer sheet on its own host.'
-    addition = '''      if (this.mateTvMode && this.connected) {
-        this.mateTvToolbar()
-      }
-      if (this.mateTvMode && this.connected && !this.mateTvTextOpen && !this.mateTvDisplayOpen && !this.mateTvLeaving) {
-        this.mateTvViewportDock()
+    addition = '''      if (this.mateTvMode && this.connected && !this.mateTvTextOpen && !this.mateTvDisplayOpen && !this.mateTvLeaving) {
+        this.mateTvCornerControls()
       }
       if (this.mateTvMode && this.mateTvLeaving) {
         Stack() { this.mateTvLeavingPanel() }

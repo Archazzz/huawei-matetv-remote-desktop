@@ -105,7 +105,6 @@
             .onActionEnd((): void => { this.mateTvStopJoystick(); })
             .onActionCancel((): void => { this.mateTvStopJoystick(); }))
       }.width(112).height(112)
-        .position({ x: Math.max(12, this.surfaceWidth - 136), y: Math.max(12, this.surfaceHeight - 136) })
         .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(150)
     }
   }

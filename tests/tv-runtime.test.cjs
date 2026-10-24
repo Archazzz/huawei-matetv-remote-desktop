@@ -344,3 +344,42 @@ for (const layout of ['macos', 'windows']) {
     assert.deepEqual(events, []);
   });
 }
+
+test('Corner dock preferences persist and all corner/orientation pairs keep controls separated', () => {
+  const saved = new Map();
+  const context = vm.createContext({ preferences: { getPreferencesSync() { return {
+    getSync(key, fallback) { return saved.has(key) ? saved.get(key) : fallback; },
+    putSync(key, value) { saved.set(key, value); }, flushSync() {},
+  }; } }, getContext() {} });
+  const source = read('tv/fragments/corner-controls.ets').split('  @Builder')[0].replace(/@State /g, '');
+  vm.runInContext(stripTypeScriptTypes('class Dock {\n' + source + '\n}\nglobalThis.Dock = Dock'), context);
+  const page = new context.Dock();
+  const screens = [{ display: 3, online: true }, { display: 7, online: false }, { display: 9, online: true }];
+  Object.assign(page, { surfaceWidth: 1280, surfaceHeight: 720, connected: true,
+    mateTvViewCanX: true, mateTvViewCanY: false, mateTvStopJoystick() {}, mateTvCancelDrag() {},
+    rustDeskDisplaySwitchState: { inputBlocked: false },
+    rustDeskDisplayCapabilities: { displays: screens, currentDisplay: 3 },
+    selectRustDeskDisplay(screen) { this.rustDeskDisplayCapabilities.currentDisplay = screen.display; },
+  });
+  const rect = media => ({ x: page.mateTvDockX(media), y: page.mateTvDockY(media),
+    w: page.mateTvDockWidth(media), h: page.mateTvDockHeight(media) });
+  for (const overflow of [false, true]) for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
+    for (const ah of [false, true]) for (const bh of [false, true]) {
+      page.mateTvViewCanX = overflow;
+      page.mateTvSaveControls(false, a, ah); page.mateTvSaveControls(true, b, bh);
+      const one = rect(false), two = rect(true);
+      for (const r of [one, two]) {
+        assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= 1280 && r.y + r.h <= 720);
+      }
+      assert.ok(one.x + one.w <= two.x || two.x + two.w <= one.x || one.y + one.h <= two.y || two.y + two.h <= one.y);
+    }
+  }
+  page.mateTvSaveControls(false, 0, true); page.mateTvSaveControls(true, 1, false);
+  const restored = new context.Dock(); restored.mateTvLoadControls();
+  assert.equal(restored.mateTvToolsCorner, 0); assert.equal(restored.mateTvToolsHorizontal, true);
+  assert.equal(restored.mateTvMediaCorner, 1); assert.equal(restored.mateTvMediaHorizontal, false);
+  page.mateTvNextDisplay(); assert.equal(page.rustDeskDisplayCapabilities.currentDisplay, 9);
+  page.mateTvNextDisplay(); assert.equal(page.rustDeskDisplayCapabilities.currentDisplay, 3);
+  page.rustDeskDisplaySwitchState.inputBlocked = true;
+  page.mateTvNextDisplay(); assert.equal(page.rustDeskDisplayCapabilities.currentDisplay, 3);
+});

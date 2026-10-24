@@ -90,7 +90,10 @@
         Text('显示设置').fontSize(24).fontColor('#F4F8FA').layoutWeight(1)
         this.mateTvButton('完成', (): void => { this.mateTvCloseDisplay(); })
       }.width('100%')
-      Text('轻扫滚动 · 停留片刻再移动可拖拽 · 短按单击').fontSize(14).fontColor('#B1C2CA')
+      Text('轻扫滚动 · 停留后移动拖拽 · 静止长按松开右键').fontSize(14).fontColor('#B1C2CA')
+      if (this.rustDeskRemoteInputPermissionKnown && !this.rustDeskRemoteInputAllowed) {
+        Text('只能查看：电脑端未允许键盘鼠标控制').fontSize(15).fontColor('#FFD4B5')
+      }
       Text(this.mateTvStreamStatus).fontSize(16).fontColor('#70E0C2').width('100%')
       Scroll() {
         Column({ space: 14 }) {
@@ -125,7 +128,7 @@
             this.mateTvButton('原始像素', (): void => { this.mateTvSetViewNative(); })
           }
           Text(this.mateTvScaleStatus).fontSize(15).fontColor('#B1C2CA').width('100%')
-          Text('原始像素不放大画面；超出电视的部分仍可用右下角摇杆移动。')
+          Text('原始像素不放大画面；超出电视的部分可用画面摇杆移动。')
             .fontSize(15).fontColor('#B1C2CA').width('100%')
           Text('码率策略').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
@@ -137,6 +140,9 @@
             .fontSize(14).fontColor('#B1C2CA').width('100%')
           Text('帧率上限：' + (this.rustdeskImageQuality === 2 ? '30' : this.rustdeskFps.toString()) + ' 帧/秒')
             .fontSize(16).fontColor('#B1C2CA').width('100%')
+          Text('角落按钮布局').fontSize(20).fontColor('#F4F8FA').width('100%')
+          this.mateTvControlLayoutOptions(false)
+          this.mateTvControlLayoutOptions(true)
           Text('编码').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
             this.mateTvButton('H.265 优先', (): void => { this.setRustDeskCodecPref(5); })

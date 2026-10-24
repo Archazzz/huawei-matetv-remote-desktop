@@ -298,32 +298,6 @@
   }
 
   @Builder
-  private mateTvToolbar() {
-    Column({ space: 8 }) {
-      Row({ space: 8 }) {
-        this.mateTvButton('切换电脑', (): void => { this.goBack(); })
-        this.mateTvButton(this.mateTvViewMode === 'fill' ? '完整画面' : '短边铺满', (): void => { this.mateTvSetViewFill(this.mateTvViewMode !== 'fill'); })
-        this.mateTvButton('显示器 / 画质', (): void => { this.mateTvOpenDisplay(); })
-        Button(this.mateTvRightClick ? '点选位置右击' : '右键', { type: ButtonType.Normal })
-          .fontSize(16).height(38).padding({ left: 14, right: 14 }).borderRadius(10)
-          .backgroundColor('#243640').fontColor('#F4F8FA')
-          .onClick((): void => { this.mateTvRightClick = !this.mateTvRightClick; })
-        this.mateTvButton('文字 / 听写', (): void => { this.mateTvOpenText(); })
-        this.mateTvButton('键盘', (): void => {
-          if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.openKeyboard(); }
-        })
-        this.mateTvButton('Esc', (): void => { this.sendRemoteKeyTap(111, 'Esc'); })
-      }
-      if (this.rustDeskRemoteInputPermissionKnown && !this.rustDeskRemoteInputAllowed) {
-        Text('只能查看：电脑端未允许键盘鼠标控制，请检查 RustDesk 当前连接的权限。')
-          .fontSize(16).fontColor('#FFD4B5')
-
-      }
-    }.padding(8).backgroundColor('#ED101C25').borderRadius(12)
-      .position({ x: 24, y: 16 }).zIndex(100)
-  }
-
-  @Builder
   private mateTvTextPanel() {
     Column({ space: 12 }) {
       Row() {
