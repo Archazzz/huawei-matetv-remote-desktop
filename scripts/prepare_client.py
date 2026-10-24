@@ -111,6 +111,64 @@ def replace_once(text: str, before: str, after: str) -> str:
     return text.replace(before, after, 1)
 
 
+def restrict_tv_permissions(text: str) -> str:
+    """Remove desktop-only ACL declarations without regex-matching nested objects."""
+    if not re.search(r'"deviceTypes"\s*:\s*\[\s*"tv"\s*\]', text):
+        raise ValueError('TV permission policy requires a TV-only module')
+    matches = list(re.finditer(r'"requestPermissions"\s*:\s*\[', text))
+    if len(matches) != 1:
+        raise ValueError('requestPermissions declaration missing or ambiguous')
+    start = matches[0].end()
+    cursor, segment = start, start
+    stack, entries = ['['], []
+    while cursor < len(text):
+        char = text[cursor]
+        if char == '"':
+            _, cursor = json.decoder.scanstring(text, cursor + 1)
+            continue
+        if char in '[{':
+            stack.append(char)
+        elif char in ']}':
+            if not stack or stack.pop() != ( '[' if char == ']' else '{'):
+                raise ValueError('malformed permission array')
+            if not stack:
+                tail = text[segment:cursor].strip()
+                if tail:
+                    entries.append(tail)
+                break
+        elif char == ',' and len(stack) == 1:
+            entries.append(text[segment:cursor].strip())
+            segment = cursor + 1
+        cursor += 1
+    else:
+        raise ValueError('unterminated permission array')
+    denied = {'ohos.permission.READ_PASTEBOARD', 'ohos.permission.FILE_ACCESS_PERSIST'}
+    found, retained = set(), []
+    for entry in entries:
+        name = re.match(r'\{\s*"name"\s*:\s*"([^"]+)"', entry)
+        if name is None:
+            raise ValueError('unexpected pinned permission object structure')
+        if name[1] in denied:
+            if name[1] in found:
+                raise ValueError('duplicate desktop-only permission')
+            found.add(name[1])
+        else:
+            retained.append(entry)
+    if found != denied:
+        raise ValueError('pinned desktop-only permission declarations changed')
+    return text[:start] + '\n      ' + ',\n      '.join(retained) + '\n    ' + text[cursor:]
+
+
+def patch_tv_clipboard_permissions(text: str) -> str:
+    text = replace_once(text, "import { pasteboard, BusinessError } from '@kit.BasicServicesKit';",
+                        "import { pasteboard, BusinessError, deviceInfo } from '@kit.BasicServicesKit';")
+    return replace_once(text,
+        '  context: common.UIAbilityContext): Promise<ClipboardReadAccessDecision> {',
+        '  context: common.UIAbilityContext): Promise<ClipboardReadAccessDecision> {\n'
+        '  // TV has no system-clipboard ACL; explicit text input uses sendTextAccepted.\n'
+        "  if (deviceInfo.deviceType === 'tv') { return resolveClipboardReadAccess(false, null); }")
+
+
 def patch_audio_interrupt_recovery(dest: Path) -> None:
     """Defer OHAudio interruption recovery to the existing foreground UI tick."""
     cpp = dest / 'entry/src/main/cpp/audio'
@@ -409,6 +467,10 @@ def patch_session(text: str) -> str:
     text = "import { TV_COMPUTER_PRESETS, TvComputerPreset } from '../services/TvProvisionedComputers';\n" + text
     text = replace_once(text, "import { pasteboard, BusinessError } from '@kit.BasicServicesKit';",
                         "import { pasteboard, BusinessError, deviceInfo } from '@kit.BasicServicesKit';")
+    text = replace_once(text, '  private clipboardBridgeEnabledForSession(): boolean {',
+                        '  private clipboardBridgeEnabledForSession(): boolean {\n'
+                        '    // TV does not mirror the shared system clipboard or request its ACL.\n'
+                        '    if (this.mateTvMode) { return false; }')
     members = (ROOT / 'tv/fragments/session-members.ets').read_text()
     members += (ROOT / 'tv/fragments/saved-login-members.ets').read_text()
     members += (ROOT / 'tv/fragments/display-members.ets').read_text()
@@ -555,6 +617,7 @@ def main():
     text, count = re.subn(r'"deviceTypes"\s*:\s*\[[^\]]+\]', '"deviceTypes": ["tv"]', text, count=1)
     if count != 1:
         raise ValueError('deviceTypes declaration missing')
+    text = restrict_tv_permissions(text)
     # This fork must not impersonate the upstream AGC/Push application.
     text = re.sub(r'\s*"metadata"\s*:\s*\[\s*\{\s*"name"\s*:\s*"client_id",\s*"value"\s*:\s*"[^"]*"\s*\}\s*\],?', '', text)
     module.write_text(text)
@@ -573,6 +636,8 @@ def main():
     startup.write_text(startup.read_text().replace("'pages/GuidePage'", "'pages/TvHome'").replace("'pages/LoginPage'", "'pages/TvInputLab'"))
     remote = dest / 'entry/src/main/ets/pages/RemoteDesktop.ets'
     remote.write_text(patch_session(remote.read_text()))
+    clipboard = dest / 'entry/src/main/ets/services/ClipboardBridgeService.ets'
+    clipboard.write_text(patch_tv_clipboard_permissions(clipboard.read_text()))
     # HitTestMode.None excludes only the cursor container. Its Image/Stack
     # descendants still intercept touches exactly at the pointer hotspot.
     cursor = dest / 'entry/src/main/ets/components/RemoteCursorOverlay.ets'
