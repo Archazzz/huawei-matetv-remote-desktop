@@ -104,10 +104,10 @@ struct TvHome {
 
   private computerArt(host: RemoteHost): Resource | null {
     const name: string = host.label.toLowerCase();
+    if (name.includes('windows') || /(^|[^a-z])pc([^a-z]|$)/.test(name)) { return $r('app.media.device_windows_pc'); }
     if (name.includes('book')) { return $r('app.media.device_macbook'); }
     if (name.includes('studio')) { return $r('app.media.device_mac_studio'); }
     if (name.includes('mini')) { return $r('app.media.device_mac_mini'); }
-    if (name.includes('windows') || /(^|[^a-z])pc([^a-z]|$)/.test(name)) { return $r('app.media.device_windows_pc'); }
     return null;
   }
 
@@ -142,7 +142,7 @@ struct TvHome {
           .hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
       }.width('100%').height('100%').hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
     }.width('100%').height(230).backgroundColor('#182833').borderRadius(20)
-      .border({ width: 2, color: this.focusedComputer === host.id ? '#70E0C2' : '#2A414D' })
+      .border({ width: 2, radius: 20, color: this.focusedComputer === host.id ? '#70E0C2' : '#2A414D' }).clip(true)
       .accessibilityText(host.label).enabled(!this.opening)
       .onFocus((): void => { this.focusedComputer = host.id; })
       .onBlur((): void => { if (this.focusedComputer === host.id) { this.focusedComputer = ''; } })
