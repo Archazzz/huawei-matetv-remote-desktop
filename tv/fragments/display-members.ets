@@ -109,6 +109,7 @@
   }
 
   private mateTvCloseDisplay(): void {
+    this.mateTvCancelRemoteCapture();
     this.mateTvDisplayOpen = false;
     // These inline panels have no native closing animation or stacked instances.
     // Retire all of our own leases, including an earlier duplicate open.
@@ -194,6 +195,7 @@
             .fontSize(14).fontColor('#B1C2CA').width('100%')
           Text('角落按钮布局').fontSize(20).fontColor('#F4F8FA').width('100%')
           this.mateTvControlLayoutOptions()
+          this.mateTvRemoteKeySettings()
           Text('编码').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
             this.mateTvButton('H.265 优先', (): void => { this.setRustDeskCodecPref(5); })

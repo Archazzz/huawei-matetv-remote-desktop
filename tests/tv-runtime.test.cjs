@@ -289,15 +289,19 @@ test('TV panel ownership is idempotent and closing retires only its own leases',
     '\n}\nglobalThis.Panels = Panels; globalThis.Owner = RemoteSessionInputOwner;'), context);
   const page = new context.Panels();
   page.sessionInputOwner = new context.Owner();
+  let cancelledRemoteCaptures = 0;
   Object.assign(page, { connected: true, cleanupStarted: false, mateTvStopJoystick() {},
+    mateTvCancelRemoteCapture() { cancelledRemoteCaptures++; },
     mateTvCloseText() {}, mateTvCancelDrag() {}, releaseRustDeskInputBeforeBlock() {}, mateTvRefreshStreamStatus() {} });
   page.mateTvOpenDisplay(); page.mateTvOpenDisplay();
   page.mateTvCloseDisplay();
   assert.equal(page.sessionInputOwner.blocked(), false);
+  assert.equal(cancelledRemoteCaptures, 1);
   // Simulate old duplicate leases, and an unrelated authentication dialog.
   page.sessionInputOwner.appeared('MateTvDisplay'); page.sessionInputOwner.appeared('MateTvDisplay');
   const auth = page.sessionInputOwner.acquire('Auth', 'system');
   page.mateTvCloseDisplay(); page.mateTvCloseDisplay();
+  assert.equal(cancelledRemoteCaptures, 3);
   assert.equal(page.sessionInputOwner.blocked(), true);
   assert.equal(page.sessionInputOwner.debugString().includes('MateTvDisplay'), false);
   page.sessionInputOwner.release(auth);

@@ -469,6 +469,7 @@ def patch_session(text: str) -> str:
         this.restoreInProgress = false;
         return;
       }''')
+    text = "import { TvRemoteActionChoice, TV_REMOTE_KEY_ACTIONS, TvRemoteKeyProfile, TvRemoteDevice, TvRemoteKeyDecision, TvRemoteKeyPolicy, defaultTvRemoteKeyProfile, parseTvRemoteKeyProfile, tvRemoteDeviceFingerprint, resolveTvRemoteDevice, tvRemoteDirectionIndex, tvRemoteActionValid, tvRemoteActionKeys } from '../services/TvRemoteKeyPolicy';\n" + text
     text = "import { TvNotificationService } from '../services/notifications/TvNotificationService';\n" + text
     text = "import { TV_COMPUTER_PRESETS, TvComputerPreset } from '../services/TvProvisionedComputers';\n" + text
     text = replace_once(text, "import { pasteboard, BusinessError } from '@kit.BasicServicesKit';",
@@ -480,6 +481,7 @@ def patch_session(text: str) -> str:
     members = (ROOT / 'tv/fragments/session-members.ets').read_text()
     members += (ROOT / 'tv/fragments/saved-login-members.ets').read_text()
     members += (ROOT / 'tv/fragments/display-members.ets').read_text()
+    members += (ROOT / 'tv/fragments/remote-key-members.ets').read_text()
     members += (ROOT / 'tv/fragments/lifecycle-members.ets').read_text()
     members += (ROOT / 'tv/fragments/resume-members.ets').read_text()
     members += (ROOT / 'tv/fragments/notification-members.ets').read_text()
@@ -499,7 +501,9 @@ def patch_session(text: str) -> str:
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            this.openRustDeskAuthSheet();",
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            if (!this.mateTvTrySavedPassword()) { this.openRustDeskAuthSheet(); }")
     text = replace_once(text, '  private handleXComponentKey = (event: KeyEvent): boolean => {',
-                        '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen || this.mateTvDisplayOpen) { return false; }\n    if (this.mateTvMode && event.keyCode === 2016) { return false; }')
+                        '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvRouteRemoteKey(event)) { return true; }\n    if (this.mateTvTextOpen || this.mateTvDisplayOpen) { return false; }\n    if (this.mateTvMode && event.keyCode === 2016) { return false; }')
+    text = replace_once(text, "      this.refreshPhysicalKeyboardPresence('device-' + data.type);",
+                        "      this.mateTvRemoteDevicesChanged();\n      this.refreshPhysicalKeyboardPresence('device-' + data.type);")
     text = replace_once(text, '  aboutToDisappear(): void {',
                         '  aboutToDisappear(): void {\n    this.mateTvStopJoystick();\n    this.mateTvCancelDrag();\n    this.mateTvCloseText(false);\n    this.mateTvCloseDisplay();')
     text = replace_once(text, '  private handleXComponentMouse = (event: MouseEvent): void => {',
@@ -509,7 +513,7 @@ def patch_session(text: str) -> str:
     text = replace_once(text, '      if (this.connected && this.shouldShowRemoteSessionTopBar()) {',
                         '      if (!this.mateTvMode && this.connected && this.shouldShowRemoteSessionTopBar()) {')
     text = replace_once(text, "            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');",
-                        "            this.mateTvLoadControls();\n            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
+                        "            this.mateTvLoadControls();\n            this.mateTvLoadRemoteKeys();\n            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
     text = replace_once(text, '  onBackPress(): boolean {',
                         '  onBackPress(): boolean {\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }\n    if (this.mateTvMode) { if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.goBack(); } return true; }')
     text = replace_once(text, '  private goBack(): void {',
@@ -540,7 +544,7 @@ def patch_session(text: str) -> str:
                         "  private handleXComponentAxis = (event?: AxisEvent): void => {\n    if (this.mateTvMode && event) { hilog.info(RD_DOMAIN, RD_TAG, 'MateTV axis action=' + event.action + ' tool=' + event.sourceTool + ' vertical=' + event.getVerticalAxisValue() + ' horizontal=' + event.getHorizontalAxisValue()); }")
     # Release both pending TV gestures and physical buttons across lifecycle/geometry fences.
     text = replace_once(text, '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {',
-                        '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvResetTouchState(); this.mateTvRightMouseRelease = false; }')
+                        '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    this.mateTvRemotePolicy.cancel();\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvResetTouchState(); this.mateTvRightMouseRelease = false; }')
     if text.count('.onTouch(this.handleConfiguredTouchInput)') != 2:
         raise ValueError('input surface count changed')
     text = text.replace('.onTouch(this.handleConfiguredTouchInput)',
