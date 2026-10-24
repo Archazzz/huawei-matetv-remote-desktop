@@ -141,8 +141,7 @@
           Text('帧率上限：' + (this.rustdeskImageQuality === 2 ? '30' : this.rustdeskFps.toString()) + ' 帧/秒')
             .fontSize(16).fontColor('#B1C2CA').width('100%')
           Text('角落按钮布局').fontSize(20).fontColor('#F4F8FA').width('100%')
-          this.mateTvControlLayoutOptions(false)
-          this.mateTvControlLayoutOptions(true)
+          this.mateTvControlLayoutOptions()
           Text('编码').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
             this.mateTvButton('H.265 优先', (): void => { this.setRustDeskCodecPref(5); })

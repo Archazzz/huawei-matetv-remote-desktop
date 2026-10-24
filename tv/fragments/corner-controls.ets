@@ -1,30 +1,21 @@
-  @State private mateTvToolsCorner: number = 2;
-  @State private mateTvToolsHorizontal: boolean = false;
-  @State private mateTvMediaCorner: number = 3;
-  @State private mateTvMediaHorizontal: boolean = false;
+  @State private mateTvControlsCorner: number = 2;
+  @State private mateTvControlsHorizontal: boolean = false;
 
   private mateTvLoadControls(): void {
     const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
-    const tools: number = prefs.getSync('mateTvToolsCorner', 2) as number;
-    const media: number = prefs.getSync('mateTvMediaCorner', 3) as number;
-    this.mateTvToolsCorner = tools >= 0 && tools <= 3 ? tools : 2;
-    this.mateTvMediaCorner = media >= 0 && media <= 3 ? media : 3;
-    this.mateTvToolsHorizontal = prefs.getSync('mateTvToolsHorizontal', false) === true;
-    this.mateTvMediaHorizontal = prefs.getSync('mateTvMediaHorizontal', false) === true;
+    // Merge the old two docks at the user's previous function-button position.
+    const corner: number = prefs.getSync('mateTvControlsCorner', prefs.getSync('mateTvToolsCorner', 2)) as number;
+    this.mateTvControlsCorner = Number.isInteger(corner) && corner >= 0 && corner <= 3 ? corner : 2;
+    this.mateTvControlsHorizontal = prefs.getSync('mateTvControlsHorizontal', prefs.getSync('mateTvToolsHorizontal', false)) === true;
   }
 
-  private mateTvSaveControls(media: boolean, corner: number, horizontal: boolean): void {
+  private mateTvSaveControls(corner: number, horizontal: boolean): void {
     this.mateTvStopJoystick();
-    if (media) {
-      this.mateTvMediaCorner = corner;
-      this.mateTvMediaHorizontal = horizontal;
-    } else {
-      this.mateTvToolsCorner = corner;
-      this.mateTvToolsHorizontal = horizontal;
-    }
+    this.mateTvControlsCorner = corner;
+    this.mateTvControlsHorizontal = horizontal;
     const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
-    prefs.putSync(media ? 'mateTvMediaCorner' : 'mateTvToolsCorner', corner);
-    prefs.putSync(media ? 'mateTvMediaHorizontal' : 'mateTvToolsHorizontal', horizontal);
+    prefs.putSync('mateTvControlsCorner', corner);
+    prefs.putSync('mateTvControlsHorizontal', horizontal);
     prefs.flushSync();
   }
 
@@ -43,28 +34,44 @@
     this.selectRustDeskDisplay(screens[(current + 1) % screens.length]);
   }
 
-  private mateTvDockWidth(media: boolean): number {
-    if (media) { return this.mateTvViewCanX || this.mateTvViewCanY ? (this.mateTvMediaHorizontal ? 172 : 112) : 48; }
-    const count: number = this.mateTvOnlineDisplays().length > 1 ? 3 : 2;
-    return this.mateTvToolsHorizontal ? count * 58 - 10 : 48;
+  private mateTvControlLabels(): string[] {
+    const labels: string[] = ['设置'];
+    if (this.mateTvViewHasAlternatives) { labels.push(this.mateTvViewCanX || this.mateTvViewCanY ? '缩小' : '放大'); }
+    if (this.mateTvOnlineDisplays().length > 1) { labels.push('切屏'); }
+    labels.push('听写');
+    if (this.mateTvViewCanX || this.mateTvViewCanY) { labels.push('摇杆'); }
+    return labels;
   }
 
-  private mateTvDockHeight(media: boolean): number {
-    if (media) { return this.mateTvViewCanX || this.mateTvViewCanY ? (this.mateTvMediaHorizontal ? 112 : 172) : 48; }
-    const count: number = this.mateTvOnlineDisplays().length > 1 ? 3 : 2;
-    return this.mateTvToolsHorizontal ? 48 : count * 58 - 10;
+  private mateTvDockLength(): number {
+    const count: number = this.mateTvControlLabels().length;
+    return count * 48 + (count - 1) * 10 + (this.mateTvViewCanX || this.mateTvViewCanY ? 64 : 0);
   }
 
-  private mateTvDockX(media: boolean): number {
-    const corner: number = media ? this.mateTvMediaCorner : this.mateTvToolsCorner;
-    const right: boolean = corner === 1 || corner === 3;
-    const inset: number = media && corner === this.mateTvToolsCorner ? this.mateTvDockWidth(false) + 16 : 0;
-    return Math.max(12, right ? this.surfaceWidth - 24 - this.mateTvDockWidth(media) - inset : 24 + inset);
+  private mateTvDockWidth(): number {
+    return this.mateTvControlsHorizontal ? this.mateTvDockLength() : (this.mateTvViewCanX || this.mateTvViewCanY ? 112 : 48);
   }
 
-  private mateTvDockY(media: boolean): number {
-    const corner: number = media ? this.mateTvMediaCorner : this.mateTvToolsCorner;
-    return corner < 2 ? 24 : Math.max(12, this.surfaceHeight - 24 - this.mateTvDockHeight(media));
+  private mateTvDockHeight(): number {
+    return this.mateTvControlsHorizontal ? (this.mateTvViewCanX || this.mateTvViewCanY ? 112 : 48) : this.mateTvDockLength();
+  }
+
+  private mateTvDockX(): number {
+    return this.mateTvControlsCorner % 2 === 1 ? Math.max(12, this.surfaceWidth - 24 - this.mateTvDockWidth()) : 24;
+  }
+
+  private mateTvDockY(): number {
+    return this.mateTvControlsCorner < 2 ? 24 : Math.max(12, this.surfaceHeight - 24 - this.mateTvDockHeight());
+  }
+
+  private mateTvPreviewX(): number {
+    const width: number = this.mateTvControlsHorizontal ? this.mateTvControlLabels().length * 48 - 6 : 42;
+    return this.mateTvControlsCorner % 2 === 1 ? 352 - width : 8;
+  }
+
+  private mateTvPreviewY(): number {
+    const height: number = this.mateTvControlsHorizontal ? 24 : this.mateTvControlLabels().length * 30 - 6;
+    return this.mateTvControlsCorner < 2 ? 8 : 164 - height;
   }
 
   @Builder
@@ -76,70 +83,81 @@
   }
 
   @Builder
-  private mateTvToolIcons() {
+  private mateTvControlIcons() {
     this.mateTvIcon($r('sys.symbol.gearshape_fill'), '设置', (): void => { this.mateTvOpenDisplay(); })
-    this.mateTvIcon(this.mateTvViewMode === 'fill' ? $r('sys.symbol.arrow_down_right_and_arrow_up_left') :
-      $r('sys.symbol.arrow_up_left_and_arrow_down_right'), this.mateTvViewMode === 'fill' ? '完整画面' : '短边铺满',
-      (): void => { this.mateTvSetViewFill(this.mateTvViewMode !== 'fill'); })
+    if (this.mateTvViewHasAlternatives) {
+      this.mateTvIcon(this.mateTvViewCanX || this.mateTvViewCanY ? $r('sys.symbol.minus_magnifyingglass') :
+        $r('sys.symbol.plus_magnifyingglass'), this.mateTvViewCanX || this.mateTvViewCanY ? '缩小到完整画面' : '放大到短边铺满',
+        (): void => { this.mateTvSetViewFill(!(this.mateTvViewCanX || this.mateTvViewCanY)); })
+    }
     if (this.mateTvOnlineDisplays().length > 1) {
       this.mateTvIcon($r('sys.symbol.rectangle_on_rectangle'), '切换到下一块显示器', (): void => { this.mateTvNextDisplay(); })
     }
-  }
-
-  @Builder
-  private mateTvMediaIcons() {
     this.mateTvIcon($r('sys.symbol.mic_fill'), '文字与听写', (): void => { this.mateTvOpenText(); })
     this.mateTvViewportDock()
   }
 
   @Builder
   private mateTvCornerControls() {
-    if (this.mateTvToolsHorizontal) {
-      Row({ space: 10 }) { this.mateTvToolIcons() }
-        .position({ x: this.mateTvDockX(false), y: this.mateTvDockY(false) }).zIndex(150)
+    if (this.mateTvControlsHorizontal) {
+      Row({ space: 10 }) { this.mateTvControlIcons() }
+        .position({ x: this.mateTvDockX(), y: this.mateTvDockY() }).zIndex(150)
     } else {
-      Column({ space: 10 }) { this.mateTvToolIcons() }
-        .position({ x: this.mateTvDockX(false), y: this.mateTvDockY(false) }).zIndex(150)
-    }
-    if (this.mateTvMediaHorizontal) {
-      Row({ space: 12 }) { this.mateTvMediaIcons() }
-        .position({ x: this.mateTvDockX(true), y: this.mateTvDockY(true) }).zIndex(150)
-    } else {
-      Column({ space: 12 }) { this.mateTvMediaIcons() }
-        .position({ x: this.mateTvDockX(true), y: this.mateTvDockY(true) }).zIndex(150)
+      Column({ space: 10 }) { this.mateTvControlIcons() }
+        .position({ x: this.mateTvDockX(), y: this.mateTvDockY() }).zIndex(150)
     }
   }
 
   @Builder
-  private mateTvPositionOption(media: boolean, corner: number, title: string) {
-    Button({ type: ButtonType.Normal }) {
-      Row({ space: 8 }) {
-        Stack({ alignContent: Alignment.TopStart }) {
-          Rect().width(40).height(25).radius(3).fill('#15232C').stroke('#718B98').strokeWidth(1)
-          Circle().width(6).height(6).fill('#A8E9D7')
-            .position({ x: corner === 1 || corner === 3 ? 29 : 5, y: corner < 2 ? 4 : 15 })
-        }.width(40).height(25)
-        Text(title).fontSize(16).fontColor('#F4F8FA')
+  private mateTvPositionOption(corner: number, title: string) {
+    Button(title, { type: ButtonType.Normal }).fontSize(16).fontColor('#F4F8FA')
+      .height(38).padding({ left: 18, right: 18 }).borderRadius(8)
+      .backgroundColor(this.mateTvControlsCorner === corner ? '#386D61' : '#243640')
+      .accessibilityText(title + (this.mateTvControlsCorner === corner ? '，已选择' : ''))
+      .onClick((): void => { this.mateTvSaveControls(corner, this.mateTvControlsHorizontal); })
+  }
+
+  @Builder
+  private mateTvDirectionOption(horizontal: boolean, title: string) {
+    Button(title, { type: ButtonType.Normal }).fontSize(16).fontColor('#F4F8FA')
+      .height(38).padding({ left: 18, right: 18 }).borderRadius(8)
+      .backgroundColor(this.mateTvControlsHorizontal === horizontal ? '#386D61' : '#243640')
+      .accessibilityText(title + (this.mateTvControlsHorizontal === horizontal ? '，已选择' : ''))
+      .onClick((): void => { this.mateTvSaveControls(this.mateTvControlsCorner, horizontal); })
+  }
+
+  @Builder
+  private mateTvPreviewItems() {
+    ForEach(this.mateTvControlLabels(), (label: string): void => {
+      Text(label).fontSize(12).fontColor('#EDF8F5').textAlign(TextAlign.Center)
+        .width(42).height(24).backgroundColor(label === '摇杆' ? '#386D61' : '#354C58').borderRadius(6)
+    }, (label: string): string => label)
+  }
+
+  @Builder
+  private mateTvControlLayoutOptions() {
+    Row({ space: 12 }) {
+      Text('位置').fontSize(16).fontColor('#B1C2CA')
+      this.mateTvPositionOption(0, '左上')
+      this.mateTvPositionOption(1, '右上')
+      this.mateTvPositionOption(2, '左下')
+      this.mateTvPositionOption(3, '右下')
+    }
+    Row({ space: 12 }) {
+      Text('排列').fontSize(16).fontColor('#B1C2CA')
+      this.mateTvDirectionOption(true, '横向')
+      this.mateTvDirectionOption(false, '纵向')
+    }
+    Stack({ alignContent: Alignment.TopStart }) {
+      Rect().width(360).height(172).radius(10).fill('#101C25').stroke('#48606A').strokeWidth(1)
+      if (this.mateTvControlsHorizontal) {
+        Row({ space: 6 }) { this.mateTvPreviewItems() }
+          .position({ x: this.mateTvPreviewX(), y: this.mateTvPreviewY() })
+      } else {
+        Column({ space: 6 }) { this.mateTvPreviewItems() }
+          .position({ x: this.mateTvPreviewX(), y: this.mateTvPreviewY() })
       }
-    }.height(44).padding({ left: 12, right: 12 }).borderRadius(8)
-      .backgroundColor((media ? this.mateTvMediaCorner : this.mateTvToolsCorner) === corner ? '#386D61' : '#243640')
-      .accessibilityText(title + ((media ? this.mateTvMediaCorner : this.mateTvToolsCorner) === corner ? '，已选择' : ''))
-      .onClick((): void => { this.mateTvSaveControls(media, corner, media ? this.mateTvMediaHorizontal : this.mateTvToolsHorizontal); })
-  }
-
-  @Builder
-  private mateTvControlLayoutOptions(media: boolean) {
-    Text(media ? '语音 / 画面摇杆' : '设置 / 画面 / 切屏按钮').fontSize(18).fontColor('#F4F8FA').width('100%')
-    Row({ space: 10 }) {
-      this.mateTvPositionOption(media, 0, '左上')
-      this.mateTvPositionOption(media, 1, '右上')
-      this.mateTvPositionOption(media, 2, '左下')
-      this.mateTvPositionOption(media, 3, '右下')
-    }
-    Row({ space: 10 }) {
-      this.mateTvButton(((media ? this.mateTvMediaHorizontal : this.mateTvToolsHorizontal) ? '✓ ' : '') + '● ● ●  横向',
-        (): void => { this.mateTvSaveControls(media, media ? this.mateTvMediaCorner : this.mateTvToolsCorner, true); })
-      this.mateTvButton((!(media ? this.mateTvMediaHorizontal : this.mateTvToolsHorizontal) ? '✓ ' : '') + '⋮  纵向',
-        (): void => { this.mateTvSaveControls(media, media ? this.mateTvMediaCorner : this.mateTvToolsCorner, false); })
-    }
+    }.width(360).height(172).hitTestBehavior(HitTestMode.None)
+    Text('当前 ' + this.mateTvControlLabels().length.toString() + ' 个控件 · ' + this.mateTvControlLabels().join(' → '))
+      .fontSize(14).fontColor('#B1C2CA').width('100%')
   }

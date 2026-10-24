@@ -3,6 +3,7 @@
   @State private mateTvJoystickY: number = 0;
   private mateTvJoystickTimer: number = -1;
   private mateTvJoystickAt: number = 0;
+  @State private mateTvViewHasAlternatives: boolean = false;
   @State private mateTvViewCanX: boolean = false;
   @State private mateTvViewCanY: boolean = false;
 
@@ -14,6 +15,14 @@
       strictContentBounds: true }, viewport);
     this.mateTvViewCanX = edge.panX > 0.5;
     this.mateTvViewCanY = edge.panY > 0.5;
+    const rotated: boolean = ((Math.round(this.canvasTransform.rotation ?? 0) % 4 + 4) % 4) % 2 === 1;
+    const width: number = rotated ? viewport.sourceHeight : viewport.sourceWidth;
+    const height: number = rotated ? viewport.sourceWidth : viewport.sourceHeight;
+    // Keep the toggle in fit mode for wide/portrait sources; hide it only when
+    // fit and fill are equivalent (allowing for small pixel rounding errors).
+    this.mateTvViewHasAlternatives = this.mateTvViewCanX || this.mateTvViewCanY ||
+      (width > 0 && height > 0 && viewport.surfaceWidth > 0 && viewport.surfaceHeight > 0 &&
+        Math.abs(width / height / (viewport.surfaceWidth / viewport.surfaceHeight) - 1) > 0.01);
 
   }
 

@@ -345,8 +345,8 @@ for (const layout of ['macos', 'windows']) {
   });
 }
 
-test('Corner dock preferences persist and all corner/orientation pairs keep controls separated', () => {
-  const saved = new Map();
+test('Unified dock migrates preferences, keeps one corner and previews the actual controls', () => {
+  const saved = new Map([['mateTvToolsCorner', 1], ['mateTvToolsHorizontal', true]]);
   const context = vm.createContext({ preferences: { getPreferencesSync() { return {
     getSync(key, fallback) { return saved.has(key) ? saved.get(key) : fallback; },
     putSync(key, value) { saved.set(key, value); }, flushSync() {},
@@ -356,30 +356,50 @@ test('Corner dock preferences persist and all corner/orientation pairs keep cont
   const page = new context.Dock();
   const screens = [{ display: 3, online: true }, { display: 7, online: false }, { display: 9, online: true }];
   Object.assign(page, { surfaceWidth: 1280, surfaceHeight: 720, connected: true,
-    mateTvViewCanX: true, mateTvViewCanY: false, mateTvStopJoystick() {}, mateTvCancelDrag() {},
+    mateTvViewCanX: false, mateTvViewCanY: false, mateTvViewHasAlternatives: false,
+    mateTvStopJoystick() {}, mateTvCancelDrag() {},
     rustDeskDisplaySwitchState: { inputBlocked: false },
     rustDeskDisplayCapabilities: { displays: screens, currentDisplay: 3 },
     selectRustDeskDisplay(screen) { this.rustDeskDisplayCapabilities.currentDisplay = screen.display; },
   });
-  const rect = media => ({ x: page.mateTvDockX(media), y: page.mateTvDockY(media),
-    w: page.mateTvDockWidth(media), h: page.mateTvDockHeight(media) });
-  for (const overflow of [false, true]) for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
-    for (const ah of [false, true]) for (const bh of [false, true]) {
-      page.mateTvViewCanX = overflow;
-      page.mateTvSaveControls(false, a, ah); page.mateTvSaveControls(true, b, bh);
-      const one = rect(false), two = rect(true);
-      for (const r of [one, two]) {
-        assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= 1280 && r.y + r.h <= 720);
-      }
-      assert.ok(one.x + one.w <= two.x || two.x + two.w <= one.x || one.y + one.h <= two.y || two.y + two.h <= one.y);
+  page.mateTvLoadControls();
+  assert.equal(page.mateTvControlsCorner, 1); assert.equal(page.mateTvControlsHorizontal, true);
+  assert.deepEqual(Array.from(page.mateTvControlLabels()), ['设置', '切屏', '听写']);
+  for (const overflow of [false, true]) for (let corner = 0; corner < 4; corner++) {
+    for (const horizontal of [false, true]) {
+      page.mateTvViewCanX = overflow; page.mateTvViewHasAlternatives = overflow;
+      page.mateTvSaveControls(corner, horizontal);
+      const x = page.mateTvDockX(), y = page.mateTvDockY();
+      assert.ok(x >= 0 && y >= 0 && x + page.mateTvDockWidth() <= 1280 && y + page.mateTvDockHeight() <= 720);
+      assert.equal(corner % 2 ? x + page.mateTvDockWidth() : x, corner % 2 ? 1256 : 24);
+      assert.equal(corner < 2 ? y : y + page.mateTvDockHeight(), corner < 2 ? 24 : 696);
+      const previewW = horizontal ? page.mateTvControlLabels().length * 48 - 6 : 42;
+      const previewH = horizontal ? 24 : page.mateTvControlLabels().length * 30 - 6;
+      assert.ok(page.mateTvPreviewX() + previewW <= 360 && page.mateTvPreviewY() + previewH <= 172);
     }
   }
-  page.mateTvSaveControls(false, 0, true); page.mateTvSaveControls(true, 1, false);
+  assert.deepEqual(Array.from(page.mateTvControlLabels()), ['设置', '缩小', '切屏', '听写', '摇杆']);
+  page.mateTvViewCanX = false;
+  assert.ok(page.mateTvControlLabels().includes('放大'));
+  page.mateTvSaveControls(0, true);
   const restored = new context.Dock(); restored.mateTvLoadControls();
-  assert.equal(restored.mateTvToolsCorner, 0); assert.equal(restored.mateTvToolsHorizontal, true);
-  assert.equal(restored.mateTvMediaCorner, 1); assert.equal(restored.mateTvMediaHorizontal, false);
+  assert.equal(restored.mateTvControlsCorner, 0); assert.equal(restored.mateTvControlsHorizontal, true);
   page.mateTvNextDisplay(); assert.equal(page.rustDeskDisplayCapabilities.currentDisplay, 9);
   page.mateTvNextDisplay(); assert.equal(page.rustDeskDisplayCapabilities.currentDisplay, 3);
   page.rustDeskDisplaySwitchState.inputBlocked = true;
   page.mateTvNextDisplay(); assert.equal(page.rustDeskDisplayCapabilities.currentDisplay, 3);
+});
+
+test('Aspect-ratio toggle stays available in fit mode but disappears for matching aspect ratios', () => {
+  const normal = createViewport(3840, 2160).page;
+  assert.equal(normal.mateTvViewHasAlternatives, false);
+  const { page, viewport } = createViewport(5120, 1440);
+  assert.equal(page.mateTvViewHasAlternatives, true);
+  page.mateTvSetViewFill(false);
+  assert.equal(page.mateTvViewHasAlternatives, true);
+  assert.equal(page.mateTvViewCanX, false);
+  viewport.sourceWidth = 1080; viewport.sourceHeight = 1920;
+  page.canvasRotationQuarterTurns = 1;
+  page.resetCanvasToDisplayDefault();
+  assert.equal(page.mateTvViewHasAlternatives, false);
 });
