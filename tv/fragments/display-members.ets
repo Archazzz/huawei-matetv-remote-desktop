@@ -22,6 +22,11 @@
       prefs.putSync('mateTvBandwidthDefaultsV3', true);
       prefs.flushSync();
     }
+    if (prefs.getSync('mateTvFpsDefaultsV4', false) !== true) {
+      prefs.putSync(RUSTDESK_FPS_PREF_KEY, 60);
+      prefs.putSync('mateTvFpsDefaultsV4', true);
+      prefs.flushSync();
+    }
     this.mateTvSourceResolution = prefs.getSync('mateTvSourceResolution', true) === true;
     rdpnapi.setMateTvSourceResolution(this.mateTvSourceResolution);
     const codec: number = prefs.getSync('rustdeskCodec', 5) as number;
@@ -32,6 +37,7 @@
     AppStorage.setOrCreate('rustdeskCodec', this.rustdeskCodec);
     AppStorage.setOrCreate('rustdeskImageQuality', this.rustdeskImageQuality);
     AppStorage.setOrCreate(RUSTDESK_FPS_PREF_KEY, this.rustdeskFps);
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV hardware video capabilities ' + JSON.stringify(rdpnapi.getHardwareVideoDecoderCapabilities()));
 
   }
 
@@ -138,8 +144,14 @@
           }
           Text('高带宽模式优先保留细节，实际码率随画面和网络自适应。当前电脑端不提供指定 Mbps 的硬上限。')
             .fontSize(14).fontColor('#B1C2CA').width('100%')
-          Text('帧率上限：' + (this.rustdeskImageQuality === 2 ? '30' : this.rustdeskFps.toString()) + ' 帧/秒')
-            .fontSize(16).fontColor('#B1C2CA').width('100%')
+          Text('帧率上限').fontSize(20).fontColor('#F4F8FA').width('100%')
+          Row({ space: 12 }) {
+            this.mateTvButton((this.rustdeskFps === 30 ? '✓ ' : '') + '30 帧', (): void => { this.setRustDeskFpsPref(30); })
+            this.mateTvButton((this.rustdeskFps === 60 ? '✓ ' : '') + '60 帧', (): void => { this.setRustDeskFpsPref(60); })
+            this.mateTvButton((this.rustdeskFps === 120 ? '✓ ' : '') + '120 帧', (): void => { this.setRustDeskFpsPref(120); })
+          }
+          Text('实际帧率受电脑、视频源和电视能力影响。高分辨率 VP9 软解最多请求 60 帧，积压时自动降帧；120 帧不会为低帧率视频补帧。')
+            .fontSize(14).fontColor('#B1C2CA').width('100%')
           Text('角落按钮布局').fontSize(20).fontColor('#F4F8FA').width('100%')
           this.mateTvControlLayoutOptions()
           Text('编码').fontSize(20).fontColor('#F4F8FA').width('100%')

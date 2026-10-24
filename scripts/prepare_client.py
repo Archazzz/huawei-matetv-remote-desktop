@@ -268,6 +268,44 @@ def main():
         '                return {result, DecoderNapi::OwnedSubmitStatus::Backpressure};',
         '                return {result, result == DecoderNapi::kDecodeHardwareKeyframeRequired ?\n                    DecoderNapi::OwnedSubmitStatus::NeedKeyframe : DecoderNapi::OwnedSubmitStatus::Backpressure};')
     hardware.write_text(hardware_text)
+    runtime = dest / 'rustdesk_ffi/src/lib.rs'
+    runtime_text = runtime.read_text()
+    runtime_text = replace_once(runtime_text,
+        '    if image_quality == 2 {\n        return BEST_QUALITY_FPS;\n    }\n    if requested_fps > 0 {\n        return requested_fps.min(MAX_REQUESTED_FPS);\n    }',
+        '    // An explicit TV frame-rate choice is independent of encoder quality.\n'
+        '    if requested_fps > 0 {\n        return requested_fps.min(MAX_REQUESTED_FPS);\n    }\n'
+        '    if image_quality == 2 {\n        return BEST_QUALITY_FPS;\n    }')
+    runtime_text = replace_once(runtime_text, 'fn best_quality_keeps_30_fps_over_an_explicit_frame_rate()',
+        'fn best_quality_honors_explicit_frame_rate_and_bounds_it()')
+    runtime_text = replace_once(runtime_text,
+        'assert_eq!(stream_fps_for(RustDeskProfile::Performance, 0, 2, 60), 30);',
+        'assert_eq!(stream_fps_for(RustDeskProfile::Performance, 0, 2, 60), 60);')
+    runtime_text = replace_once(runtime_text,
+        'assert_eq!(stream_fps_for(RustDeskProfile::Balanced, 4, 2, 120), 30);',
+        'assert_eq!(stream_fps_for(RustDeskProfile::Balanced, 4, 2, 120), 120);\n'
+        '        assert_eq!(stream_fps_for(RustDeskProfile::Balanced, 4, 2, 500), 120);')
+    runtime.write_text(runtime_text)
+    connector = dest / 'rustdesk_ffi/src/connector.rs'
+    connector_text = connector.read_text()
+    for before, after in [
+        ('const BACKPRESSURE_FPS: [u32; 4] = [60, 45, 30, 15];',
+         'const BACKPRESSURE_FPS: [u32; 4] = [120, 45, 30, 15];'),
+        ('const VP9_BACKPRESSURE_FPS: [u32; 4] = [30, 26, 22, 18];',
+         'const VP9_BACKPRESSURE_FPS: [u32; 4] = [60, 26, 22, 18];'),
+        ('const VP9_HIGH_RESOLUTION_FPS: u32 = 30;', 'const VP9_HIGH_RESOLUTION_FPS: u32 = 60;'),
+        ('fn live_best_quality_caps_30_and_switching_back_restores_the_user_rate()',
+         'fn live_best_quality_preserves_the_user_rate()'),
+        ('assert_eq!(to_best, Some((30, 30, 30)));', 'assert_eq!(to_best, None);'),
+        ('fn high_resolution_vp9_uses_a_stable_thirty_fps_ceiling()',
+         'fn high_resolution_vp9_caps_at_sixty_without_raising_lower_user_choices()'),
+        ('assert_eq!(resolution_aware_fps_ceiling(2, 2940, 1912, 60), 30);',
+         'assert_eq!(resolution_aware_fps_ceiling(2, 2940, 1912, 60), 60);\n'
+         '        assert_eq!(resolution_aware_fps_ceiling(2, 5120, 1440, 120), 60);\n'
+         '        assert_eq!(pressure_target_fps(4, 4, 120, 0, false), 120);\n'
+         '        assert_eq!(pressure_target_fps(4, 4, 120, 2, false), 30);'),
+    ]:
+        connector_text = replace_once(connector_text, before, after)
+    connector.write_text(connector_text)
     protocol = dest / 'rustdesk_ffi/src/protocol/session.rs'
     protocol_text = protocol.read_text()
     quality_call = 'opt.set_image_quality(Self::image_quality_from_pref(image_quality));'

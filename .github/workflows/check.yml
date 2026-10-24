@@ -30,3 +30,6 @@ jobs:
       - run: c++ -std=c++17 tests/tv-decode-quality.test.cpp -o /tmp/tv-decode-test && /tmp/tv-decode-test
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --manifest-path .work/client/rustdesk_ffi/Cargo.toml --no-default-features protocol::session
+      - run: cargo test --manifest-path .work/client/rustdesk_ffi/Cargo.toml --no-default-features quality_
+      - run: cargo test --manifest-path .work/client/rustdesk_ffi/Cargo.toml --no-default-features pressure
+      - run: cargo test --manifest-path .work/client/rustdesk_ffi/Cargo.toml --no-default-features high_resolution_vp9

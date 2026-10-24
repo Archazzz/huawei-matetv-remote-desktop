@@ -249,7 +249,8 @@ test('TV startup restores saved streaming preferences after migration and respec
     }; } }, getContext() {}, RUSTDESK_FPS_PREF_KEY: 'fps',
     normalizeRustDeskFps(value) { return value; },
     AppStorage: { setOrCreate(key, value) { storage.set(key, value); } },
-    rdpnapi: { setMateTvSourceResolution(source) { resolutions.push(source); return true; } },
+    hilog: { info() {} }, RD_DOMAIN: 0, RD_TAG: 'test',
+    rdpnapi: { getHardwareVideoDecoderCapabilities() { return {}; }, setMateTvSourceResolution(source) { resolutions.push(source); return true; } },
   });
   const fragment = read('tv/fragments/display-members.ets').split('  @Builder')[0];
   vm.runInContext(stripTypeScriptTypes('class Prefs {\n' + fragment.replace(/@State /g, '') +
@@ -257,6 +258,8 @@ test('TV startup restores saved streaming preferences after migration and respec
   const page = new context.Prefs(); page.mateTvMode = true;
   page.mateTvInitStreamDefaults();
   assert.equal(storage.get('rustdeskCodec'), 5); assert.equal(storage.get('rustdeskImageQuality'), 2);
+  assert.equal(storage.get('fps'), 60);
+  saved.set('fps', 120);
   saved.set('rustdeskImageQuality', 1); saved.set('rustdeskCodec', 2);
   page.mateTvInitStreamDefaults();
   assert.equal(storage.get('rustdeskImageQuality'), 1); assert.equal(storage.get('rustdeskCodec'), 2);
@@ -269,6 +272,7 @@ test('TV startup restores saved streaming preferences after migration and respec
   assert.equal(page.mateTvSourceResolution, false);
   assert.equal(resolutions.at(-1), false);
   assert.equal(storage.get('rustdeskImageQuality'), 0);
+  assert.equal(storage.get('fps'), 120);
 });
 
 
@@ -402,4 +406,18 @@ test('Aspect-ratio toggle stays available in fit mode but disappears for matchin
   page.canvasRotationQuarterTurns = 1;
   page.resetCanvasToDisplayDefault();
   assert.equal(page.mateTvViewHasAlternatives, false);
+});
+
+test('TV frame-rate choices accept 120 FPS independently of quality', () => {
+  const source = read('tv/overlay/entry/src/main/ets/services/RustDeskFrameRatePolicy.ets');
+  const context = vm.createContext({});
+  vm.runInContext(stripTypeScriptTypes(source.replace(/export /g, '')), context);
+  for (const rate of [30, 60, 120]) {
+    assert.equal(context.normalizeRustDeskFps(rate), rate);
+    for (const quality of [0, 1, 2]) {
+      assert.equal(context.rustDeskFpsLockedByQuality(quality), false);
+      assert.equal(context.rustDeskFpsSummary(quality, rate), rate + ' 帧上限');
+    }
+  }
+  assert.equal(context.normalizeRustDeskFps(500), 0);
 });
