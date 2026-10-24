@@ -97,19 +97,14 @@
       Stack({ alignContent: Alignment.Center }) {
         Circle().width(112).height(112).fill('#C2192A34')
           .stroke('#507786').strokeWidth(1).hitTestBehavior(HitTestMode.None)
-        // Fixed vector bounds avoid font baseline offsets in the four arrows.
-        Path().commands('M 7 1 L 2 6 L 7 11').width(8).height(12)
-          .fill(Color.Transparent).stroke(this.mateTvViewCanX ? '#D2E5E9' : '#48606A').strokeWidth(2)
-          .position({ x: 8, y: 50 }).hitTestBehavior(HitTestMode.None)
-        Path().commands('M 1 1 L 6 6 L 1 11').width(8).height(12)
-          .fill(Color.Transparent).stroke(this.mateTvViewCanX ? '#D2E5E9' : '#48606A').strokeWidth(2)
-          .position({ x: 96, y: 50 }).hitTestBehavior(HitTestMode.None)
-        Path().commands('M 1 7 L 6 2 L 11 7').width(12).height(8)
-          .fill(Color.Transparent).stroke(this.mateTvViewCanY ? '#D2E5E9' : '#48606A').strokeWidth(2)
-          .position({ x: 50, y: 8 }).hitTestBehavior(HitTestMode.None)
-        Path().commands('M 1 1 L 6 6 L 11 1').width(12).height(8)
-          .fill(Color.Transparent).stroke(this.mateTvViewCanY ? '#D2E5E9' : '#48606A').strokeWidth(2)
-          .position({ x: 50, y: 96 }).hitTestBehavior(HitTestMode.None)
+        // Both axes share the disc's full square coordinate space. No per-arrow
+        // layout offsets or Path pixel coordinates mixed with vp dimensions.
+        Image($r('app.media.pan_arrows_horizontal')).width(112).height(112)
+          .objectFit(ImageFit.Contain).opacity(this.mateTvViewCanX ? 1 : 0.3)
+          .hitTestBehavior(HitTestMode.None)
+        Image($r('app.media.pan_arrows_vertical')).width(112).height(112)
+          .objectFit(ImageFit.Contain).opacity(this.mateTvViewCanY ? 1 : 0.3)
+          .hitTestBehavior(HitTestMode.None)
         Circle().width(44).height(44).fill('#A8E9D7').stroke('#EBFFF8').strokeWidth(2)
           .shadow({ radius: 5, color: '#70000000', offsetY: 2 })
           .translate({ x: this.mateTvJoystickX, y: this.mateTvJoystickY })
