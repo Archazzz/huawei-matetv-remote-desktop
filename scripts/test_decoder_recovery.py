@@ -54,6 +54,7 @@ branch = source[start:end]
 program = r'''
 #include <cassert>
 #include <mutex>
+#include <initializer_list>
 #define LOG_APP 0
 #define OH_LOG_DEBUG(...) ((void)0)
 enum class CodecType { H264, H265, VP9 };
