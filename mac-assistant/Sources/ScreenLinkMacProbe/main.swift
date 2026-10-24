@@ -7,22 +7,26 @@ func emit(_ object: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
           let line = String(data: data, encoding: .utf8) else { return }
     print(line)
+    fflush(stdout)
 }
 
 final class Probe {
     private let process: NSRunningApplication
     private let root: AXUIElement
     private let showAllowedText: Bool
+    private let fixtureTest: Bool
     private var observer: AXObserver?
     private var baseline: [AXUIElement] = []
     private var emitted: [AXUIElement] = []
     private let maxNodes = 256
     private var finished = false
 
-    init(process: NSRunningApplication, showAllowedText: Bool) {
+    init(process: NSRunningApplication, showAllowedText: Bool, fixtureTest: Bool = false) {
         self.process = process
         self.root = AXUIElementCreateApplication(process.processIdentifier)
         self.showAllowedText = showAllowedText
+        self.fixtureTest = fixtureTest
+        AXUIElementSetMessagingTimeout(root, 0.2)
     }
 
     private func value(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
@@ -35,7 +39,7 @@ final class Probe {
         // Roles are structural AX enums; don't print an unexpected custom string.
         let raw = value(element, kAXRoleAttribute) as? String ?? ""
         let known: Set<String> = ["AXApplication", "AXWindow", "AXGroup", "AXScrollArea", "AXStaticText",
-                                  "AXButton", "AXImage", "AXList", "AXLayoutArea", "AXUnknown"]
+                                  "AXButton", "AXImage", "AXList", "AXLayoutArea", "AXUnknown", "AXHeading", "AXTextArea"]
         return known.contains(raw) ? raw : "other"
     }
 
@@ -112,6 +116,19 @@ final class Probe {
             var report: [String: Any] = ["kind": "new-node", "trigger": reason,
                 "depth": depth, "role": role(element), "source": source?.rawValue ?? "unknown",
                 "attributes": structural.filter { attributeNames.contains($0) }, "contentState": "unknown"]
+            if fixtureTest {
+                let subrole = value(element, kAXSubroleAttribute) as? String ?? ""
+                let knownSubroles: Set<String> = ["AXNotificationCenterBanner", "AXNotificationCenterBannerStack",
+                    "AXNotificationCenterAlert", "AXNotificationCenterAlertStack", "AXSystemDialog"]
+                report["subrole"] = knownSubroles.contains(subrole) ? subrole : "other"
+                var metadata: [String: [String: String]] = [:]
+                for attribute in [kAXIdentifierAttribute, kAXTitleAttribute, kAXValueAttribute, kAXDescriptionAttribute] {
+                    if let text = value(element, attribute) as? String, !text.isEmpty {
+                        metadata[attribute] = FixtureMetadata.describe(text, attribute: attribute)
+                    }
+                }
+                report["fixtureMetadata"] = metadata
+            }
             if showAllowedText, let source {
                 // Most NotificationCenter nodes belong to NotificationCenter itself, so
                 // this deliberately remains closed until real attribution is possible.
@@ -140,7 +157,8 @@ if arguments == ["permission-status"] {
     emit(["trusted": AXIsProcessTrustedWithOptions(options), "requested": true])
 } else if arguments.first == "probe" {
     let showText = arguments.contains("--show-allowed-text")
-    let numeric = arguments.dropFirst().filter { $0 != "--show-allowed-text" }
+    let fixtureTest = arguments.contains("--fixture-test")
+    let numeric = arguments.dropFirst().filter { $0 != "--show-allowed-text" && $0 != "--fixture-test" }
     let seconds = numeric.first.flatMap(Double.init) ?? 60
     guard numeric.count <= 1, seconds >= 5, seconds <= 120 else {
         emit(["error": "duration-must-be-5-to-120-seconds"]); exit(2)
@@ -149,7 +167,7 @@ if arguments == ["permission-status"] {
     guard let process = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.notificationcenterui").first else {
         emit(["error": "notification-center-process-not-running"]); exit(4)
     }
-    _ = Probe(process: process, showAllowedText: showText).start(seconds: seconds)
+    _ = Probe(process: process, showAllowedText: showText, fixtureTest: fixtureTest).start(seconds: seconds)
 } else {
-    print("Usage: screenlink-mac-probe permission-status | request-permission | probe [5..120 seconds] [--show-allowed-text]")
+    print("Usage: screenlink-mac-probe permission-status | request-permission | probe [5..120 seconds] [--show-allowed-text] [--fixture-test]")
 }

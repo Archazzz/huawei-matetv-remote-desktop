@@ -21,8 +21,8 @@ public final class EventSender {
               components.user == nil, components.password == nil,
               components.query == nil, components.fragment == nil,
               components.path.isEmpty || components.path == "/" else { throw EventError.invalidEndpoint }
-        guard !deviceToken.isEmpty, deviceToken.count <= 4096,
-              !deviceToken.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }) else {
+        guard (32...256).contains(deviceToken.utf8.count), !deviceToken.contains("REPLACE"),
+              deviceToken.unicodeScalars.allSatisfy({ (33...126).contains($0.value) }) else {
             throw EventError.invalidToken
         }
         components.path = "/v1/events"
