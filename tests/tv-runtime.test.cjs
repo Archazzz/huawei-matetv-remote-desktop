@@ -366,6 +366,7 @@ test('Unified dock migrates preferences, keeps one corner and previews the actua
     rustDeskDisplayCapabilities: { displays: screens, currentDisplay: 3 },
     selectRustDeskDisplay(screen) { this.rustDeskDisplayCapabilities.currentDisplay = screen.display; },
   });
+  page.mateTvMeasureControlsRoot({width: 1280, height: 720});
   page.mateTvLoadControls();
   assert.equal(page.mateTvControlsCorner, 1); assert.equal(page.mateTvControlsHorizontal, true);
   assert.deepEqual(Array.from(page.mateTvControlLabels()), ['设置', '切屏', '听写']);
@@ -377,6 +378,14 @@ test('Unified dock migrates preferences, keeps one corner and previews the actua
       assert.ok(x >= 0 && y >= 0 && x + page.mateTvDockWidth() <= 1280 && y + page.mateTvDockHeight() <= 720);
       assert.equal(corner % 2 ? x + page.mateTvDockWidth() : x, corner % 2 ? 1256 : 24);
       assert.equal(corner < 2 ? y : y + page.mateTvDockHeight(), corner < 2 ? 24 : 696);
+      // Dictation shrinks the canvas and keyboard resizes the page. Closing it
+      // must restore all corners even if canvas dimensions are still stale.
+      page.surfaceWidth = 870; page.surfaceHeight = 413;
+      page.mateTvMeasureControlsRoot({width: 1280, height: 413});
+      page.mateTvMeasureControlsRoot({width: 1280, height: 720});
+      assert.equal(page.mateTvDockX(), x); assert.equal(page.mateTvDockY(), y);
+      page.mateTvMeasureControlsRoot({width: 0, height: 0});
+      assert.equal(page.mateTvDockX(), x); assert.equal(page.mateTvDockY(), y);
       const joyX = page.mateTvDockJoystickX(), joyY = page.mateTvDockJoystickY();
       assert.ok(joyX >= 0 && joyY >= 0 && joyX + 112 <= 1280 && joyY + 112 <= 720);
       assert.ok(joyX + 112 <= x || joyX >= x + page.mateTvDockWidth() ||

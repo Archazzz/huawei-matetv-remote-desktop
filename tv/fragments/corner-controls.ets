@@ -1,5 +1,17 @@
   @State private mateTvControlsCorner: number = 2;
   @State private mateTvControlsHorizontal: boolean = false;
+  @State private mateTvControlsWidth: number = 0;
+  @State private mateTvControlsHeight: number = 0;
+
+  private mateTvMeasureControlsRoot(area: Area): void {
+    const width: number = Number(area.width);
+    const height: number = Number(area.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) { return; }
+    // The remote canvas narrows for dictation and its upstream dimensions are
+    // non-reactive. Corner chrome belongs to the page, not that canvas.
+    this.mateTvControlsWidth = width;
+    this.mateTvControlsHeight = height;
+  }
 
   private mateTvLoadControls(): void {
     const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
@@ -57,11 +69,11 @@
   }
 
   private mateTvDockX(): number {
-    return this.mateTvControlsCorner % 2 === 1 ? Math.max(12, this.surfaceWidth - 24 - this.mateTvDockWidth()) : 24;
+    return this.mateTvControlsCorner % 2 === 1 ? Math.max(12, this.mateTvControlsWidth - 24 - this.mateTvDockWidth()) : 24;
   }
 
   private mateTvDockY(): number {
-    return this.mateTvControlsCorner < 2 ? 24 : Math.max(12, this.surfaceHeight - 24 - this.mateTvDockHeight());
+    return this.mateTvControlsCorner < 2 ? 24 : Math.max(12, this.mateTvControlsHeight - 24 - this.mateTvDockHeight());
   }
 
   private mateTvPreviewX(): number {
@@ -80,14 +92,14 @@
 
   private mateTvDockJoystickX(): number {
     if (this.mateTvControlsHorizontal) {
-      return this.mateTvControlsCorner % 2 === 1 ? this.surfaceWidth - 24 - 112 : 24;
+      return this.mateTvControlsCorner % 2 === 1 ? this.mateTvControlsWidth - 24 - 112 : 24;
     }
     return this.mateTvControlsCorner % 2 === 1 ? this.mateTvDockX() - 124 : this.mateTvDockX() + 60;
   }
 
   private mateTvDockJoystickY(): number {
     if (!this.mateTvControlsHorizontal) {
-      return this.mateTvControlsCorner < 2 ? 24 : this.surfaceHeight - 24 - 112;
+      return this.mateTvControlsCorner < 2 ? 24 : this.mateTvControlsHeight - 24 - 112;
     }
     return this.mateTvControlsCorner < 2 ? this.mateTvDockY() + 60 : this.mateTvDockY() - 124;
   }
