@@ -534,10 +534,13 @@ def main():
         'assert_eq!(option.get_image_quality(), ImageQuality::Best);',
         'assert_eq!(option.get_image_quality(), ImageQuality::NotSet);\n                    assert_eq!(option.get_custom_image_quality(), 2000 << 8);')
     protocol.write_text(protocol_text + '\n' + (ROOT / 'tests/tv-quality.test.rs').read_text())
-    for resource in (dest / 'AppScope/resources').glob('*/element/string.json'):
+    # The TV launcher resolves the ability label, independently of the app label.
+    brand_resources = list((dest / 'AppScope/resources').glob('*/element/string.json'))
+    brand_resources += list((dest / 'entry/src/main/resources').glob('*/element/string.json'))
+    for resource in brand_resources:
         data = json.loads(resource.read_text())
         for item in data.get('string', []):
-            if item['name'] == 'app_name':
+            if item['name'] in ('app_name', 'EntryAbility_label'):
                 item['value'] = '屏间 · ScreenLink'
         resource.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
     # Upstream excludes local build profiles. Restore the reviewed module template.
