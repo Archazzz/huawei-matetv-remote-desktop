@@ -50,7 +50,7 @@ bash scripts/build_hap.sh .work/client
 
 ### 为自己的电视预置电脑
 
-可将只包含 `id`（稳定英文标识）、`label`、`address`、`port` 的 JSON 数组保存在被忽略的 `local/tv-computers.json`，然后执行：
+可将包含 `id`（稳定英文标识）、`label`、`address`、`port` 的 JSON 数组保存在被忽略的 `local/tv-computers.json`，然后执行：
 
 ```sh
 python3 scripts/prepare_client.py --computers local/tv-computers.json
@@ -58,6 +58,8 @@ bash scripts/build_hap.sh .work/client
 ```
 
 应用在本机存储就绪后逐条导入，同一预置标识只处理一次，同地址和端口不会重复添加。导入后在“管理与高级连接”修改或删除电脑，不会被下次启动覆盖或恢复。配置不能包含密码，连接仍使用正常认证流程。
+
+如明确希望多台设备使用同一个固定密码，可以在私人预置条目中增加相同的可选 `credentialGroup`（小写英文字母、数字或连字符）。仅同一账户、该组中精确匹配预置端点且未锁定的主机，才可作为已保存凭据的来源；新主机仍执行正常服务器认证，成功后沿用正常持久化流程。未分组的任意新增设备不会自动复用密码。构建配置仅包含组名，不包含密码。
 
 **此构建包含私人设备地址，不要公开上传生成源码或 HAP。** 不传 `--computers` 时生成空预置列表；已安装电视中保存的电脑不会因此删除。
 
