@@ -94,7 +94,7 @@
           Text('画质与流畅度').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
             this.mateTvButton('跟手 · 60 帧上限', (): void => { this.mateTvQuality(1, 60); })
-            this.mateTvButton('清晰 · 30 帧上限', (): void => { this.mateTvQuality(2, 30); })
+            this.mateTvButton('局域网超清 · 30 帧', (): void => { this.mateTvQuality(2, 30); })
             this.mateTvButton('省带宽 · 30 帧上限', (): void => { this.mateTvQuality(0, 30); })
           }
           Text('当前偏好：' + rustDeskQualityName(this.rustdeskImageQuality) + ' · ' +
@@ -106,7 +106,7 @@
             this.mateTvButton('H.264 优先', (): void => { this.setRustDeskCodecPref(4); })
             this.mateTvButton('VP9 兼容', (): void => { this.setRustDeskCodecPref(2); })
           }
-          Text('帧率是上限；静止画面帧率和实际码率会降低。电脑不支持所选编码时会回退。')
+          Text('超清档提高编码码率请求，适合高速局域网；外网可切跟手或省带宽。静止画面码率会降低，不支持的编码会回退。')
             .fontSize(15).fontColor('#B1C2CA').width('100%')
         }.width('100%')
       }.layoutWeight(1).width('100%')

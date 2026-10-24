@@ -26,3 +26,5 @@ jobs:
           node-version: '24'
       - run: python scripts/prepare_client.py
       - run: node --test tests/tv-runtime.test.cjs
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --manifest-path .work/client/rustdesk_ffi/Cargo.toml --no-default-features protocol::session

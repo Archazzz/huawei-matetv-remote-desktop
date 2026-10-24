@@ -214,6 +214,20 @@ def main():
     cursor = dest / 'entry/src/main/ets/components/RemoteCursorOverlay.ets'
     cursor.write_text(replace_once(cursor.read_text(),
         '.hitTestBehavior(HitTestMode.None)', '.hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)'))
+    protocol = dest / 'rustdesk_ffi/src/protocol/session.rs'
+    protocol_text = protocol.read_text()
+    quality_call = 'opt.set_image_quality(Self::image_quality_from_pref(image_quality));'
+    if protocol_text.count(quality_call) != 3:
+        raise ValueError('RustDesk login/live quality call sites changed')
+    protocol_text = protocol_text.replace(quality_call, 'Self::apply_mate_tv_quality(&mut opt, image_quality);')
+    protocol_text = replace_once(protocol_text, '    fn image_quality_from_pref(',
+        (ROOT / 'tv/fragments/quality-members.rs').read_text() + '    fn image_quality_from_pref(')
+    protocol_text = protocol_text.replace('live_best_quality_uses_official_best_image_quality_enum',
+        'live_tv_quality_uses_official_custom_quality_field')
+    protocol_text = replace_once(protocol_text,
+        'assert_eq!(option.get_image_quality(), ImageQuality::Best);',
+        'assert_eq!(option.get_image_quality(), ImageQuality::NotSet);\n                    assert_eq!(option.get_custom_image_quality(), 1000 << 8);')
+    protocol.write_text(protocol_text + '\n' + (ROOT / 'tests/tv-quality.test.rs').read_text())
     for resource in (dest / 'AppScope/resources').glob('*/element/string.json'):
         data = json.loads(resource.read_text())
         for item in data.get('string', []):
