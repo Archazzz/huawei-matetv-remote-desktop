@@ -172,6 +172,7 @@
           .onKeyEvent((event: KeyEvent): boolean => this.mateTvCaptureRemoteKey(event))
         if (this.mateTvRemoteCandidateName.length > 0) {
           Text(this.mateTvRemoteCandidateName).fontSize(15).fontColor('#B1C2CA')
+            .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           this.mateTvButton('确认绑定', (): void => { this.mateTvConfirmRemoteBinding(); })
         }
         if (this.mateTvRemoteDeviceId >= 0) {
