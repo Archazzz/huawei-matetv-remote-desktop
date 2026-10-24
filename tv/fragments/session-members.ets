@@ -1,5 +1,6 @@
-  // TV uses absolute pointer down/move/up. Mouse-shaped touch events are
-  // handled only by onMouse; finger touch events are handled only by onTouch.
+  // TV finger input is classified before sending a remote mouse button.
+  // A quick swipe scrolls; dwelling before moving drags; a stationary tap clicks.
+  // Physical mouse input keeps the upstream native button path.
   private mateTvMode: boolean = deviceInfo.deviceType === 'tv';
   @State private mateTvRightClick: boolean = false;
   private mateTvButtonAt: number = 0;
@@ -7,6 +8,11 @@
   private mateTvPointerY: number = -1;
   private mateTvTouchId: number = -1;
   private mateTvTraceMoves: number = 0;
+  private mateTvTouchGesture: string = 'idle';
+  private mateTvTouchStartedAt: number = 0;
+  private mateTvTouchStartX: number = 0;
+  private mateTvTouchStartY: number = 0;
+  private mateTvTouchLastY: number = 0;
   private mateTvTouchButton: number = -1;
   private mateTvRightMouseRelease: boolean = false;
   @State private mateTvTextOpen: boolean = false;
@@ -77,12 +83,14 @@
       this.mateTvTouchButton = this.mateTvRightClick ? 2 : 0;
       this.mateTvRightClick = false;
       this.discardPendingMouseMove();
-      if (shouldStageRustDeskMacPhysicalMouseClick(
-        this.currentProtocolName(), this.physicalKeyboardLayout, true, this.mateTvTouchButton)) {
-        this.stagePhysicalMouseClick(touch.x, touch.y, point.x, point.y, this.mateTvTouchButton);
-      } else {
-        this.sendMouseNow(point.x, point.y, this.mateTvTouchButton, true);
-      }
+      this.mateTvTouchGesture = 'pending';
+      this.mateTvTouchStartedAt = Date.now();
+      this.mateTvTouchStartX = touch.x;
+      this.mateTvTouchStartY = touch.y;
+      this.mateTvTouchLastY = touch.y;
+      this.touchScrollState = resetRemoteScrollState();
+      // Stage for every desktop platform: a swipe must never send DOWN first.
+      this.stagePhysicalMouseClick(touch.x, touch.y, point.x, point.y, this.mateTvTouchButton);
       hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch down button=' + this.mateTvTouchButton.toString());
       return;
     }
@@ -92,31 +100,44 @@
       if (touch.id !== this.mateTvTouchId) { continue; }
       const point: MappedPoint = this.mapInputPoint(touch.x, touch.y);
       if (event.type === TouchType.Move || event.type === TouchType.Up) {
-        if (this.physicalMouseClickPending && !this.physicalMouseRemoteDownSent) {
-          this.promotePhysicalMouseClickToDrag(touch.x, touch.y, point.x, point.y, 'matetv-touch');
-        } else if (event.type === TouchType.Move) {
-          this.queueMouseMove(point.x, point.y);
+        const dx: number = touch.x - this.mateTvTouchStartX;
+        const dy: number = touch.y - this.mateTvTouchStartY;
+        if (this.mateTvTouchGesture === 'pending' && Math.sqrt(dx * dx + dy * dy) >= 6) {
+          const elapsed: number = Date.now() - this.mateTvTouchStartedAt;
+          this.mateTvTouchGesture = elapsed >= 350 ? 'drag' : 'scroll';
+          hilog.info(RD_DOMAIN, RD_TAG, 'MateTV gesture=' + this.mateTvTouchGesture + ' dwellMs=' + elapsed.toString());
+          if (this.mateTvTouchGesture === 'scroll') {
+            // Cancel the staged click before any wheel sample. This also prevents
+            // the hover stream from accidentally promoting it to a drag.
+            this.clearPhysicalMouseClickTransaction();
+            this.physicalMouseDownButton = -1;
+          }
         }
+        if (this.mateTvTouchGesture === 'drag') {
+          if (!this.physicalMouseRemoteDownSent) {
+            this.promotePhysicalMouseClickToDrag(touch.x, touch.y, point.x, point.y, 'matetv-dwell');
+          } else {
+            this.queueMouseMove(point.x, point.y);
+          }
+        } else if (this.mateTvTouchGesture === 'scroll') {
+          this.sendTouchPadWheel(touch.y - this.mateTvTouchLastY);
+        }
+        // Keep the whole initial distance until a gesture crosses its dead zone.
+        if (this.mateTvTouchGesture !== 'pending') { this.mateTvTouchLastY = touch.y; }
       }
       if (event.type === TouchType.Up) {
-        if (this.physicalMouseClickPending && !this.physicalMouseRemoteDownSent) {
-          // A Mac click must be adjacent DOWN/UP at the original target.
-          // Sensor jitter is not a drag; real movement promotes the held press above.
+        if (this.mateTvTouchGesture === 'pending' && this.physicalMouseClickPending) {
           this.discardPendingMouseMove();
           this.sendMouseNow(this.physicalMousePressX, this.physicalMousePressY, this.mateTvTouchButton, true);
           this.sendMouseNow(this.physicalMousePressX, this.physicalMousePressY, this.mateTvTouchButton, false);
-          hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch completed Mac click');
-        } else {
-          if (this.physicalMouseClickPending && this.physicalMouseRemoteDownSent) {
-            this.queueMouseMove(point.x, point.y);
-          }
+          hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch completed click');
+        } else if (this.mateTvTouchGesture === 'drag' && this.physicalMouseRemoteDownSent) {
           this.flushMouseMove();
           this.sendMouseNow(point.x, point.y, this.mateTvTouchButton, false);
         }
         this.clearPhysicalMouseClickTransaction();
         this.physicalMouseDownButton = -1;
-        this.mateTvTouchId = -1;
-        this.mateTvTouchButton = -1;
+        this.mateTvResetTouchState();
         hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch up');
       }
       return;
@@ -163,11 +184,18 @@
     hilog.info(RD_DOMAIN, RD_TAG, 'MateTV tap sent click');
   }
 
+  private mateTvResetTouchState(): void {
+    this.mateTvTouchId = -1;
+    this.mateTvTouchButton = -1;
+    this.mateTvTouchGesture = 'idle';
+    this.mateTvTouchStartedAt = 0;
+    this.touchScrollState = resetRemoteScrollState();
+  }
+
   private mateTvCancelDrag(): void {
     this.discardPendingMouseMove();
     this.releaseTrackedMouseButtons('matetv-cancel');
-    this.mateTvTouchId = -1;
-    this.mateTvTouchButton = -1;
+    this.mateTvResetTouchState();
     this.mateTvRightMouseRelease = false;
   }
 

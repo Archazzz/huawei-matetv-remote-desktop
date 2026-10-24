@@ -112,9 +112,9 @@ def patch_session(text: str) -> str:
                         '    previousHeight: number, nextWidth: number, nextHeight: number): void {\n    if (this.mateTvMode && (previousWidth !== nextWidth || previousHeight !== nextHeight)) { this.canvasTransformGestureModified = false; return; }')
     text = replace_once(text, '  private handleXComponentAxis = (event?: AxisEvent): void => {',
                         "  private handleXComponentAxis = (event?: AxisEvent): void => {\n    if (this.mateTvMode && event) { hilog.info(RD_DOMAIN, RD_TAG, 'MateTV axis action=' + event.action + ' tool=' + event.sourceTool + ' vertical=' + event.getVerticalAxisValue() + ' horizontal=' + event.getHorizontalAxisValue()); }")
-    # Preserve physical press duration; no pickup/drop mode or single-finger pan remapping.
+    # Release both pending TV gestures and physical buttons across lifecycle/geometry fences.
     text = replace_once(text, '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {',
-                        '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvTouchId = -1; this.mateTvTouchButton = -1; this.mateTvRightMouseRelease = false; }')
+                        '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvResetTouchState(); this.mateTvRightMouseRelease = false; }')
     if text.count('.onTouch(this.handleConfiguredTouchInput)') != 2:
         raise ValueError('input surface count changed')
     text = text.replace('.onTouch(this.handleConfiguredTouchInput)',

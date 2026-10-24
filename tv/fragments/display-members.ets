@@ -77,6 +77,7 @@
         Text('显示器与画质').fontSize(24).fontColor('#F4F8FA').layoutWeight(1)
         this.mateTvButton('完成', (): void => { this.mateTvCloseDisplay(); })
       }.width('100%')
+      Text('轻扫滚动 · 停留片刻再移动可拖拽 · 短按单击').fontSize(14).fontColor('#B1C2CA')
       Text(this.mateTvStreamStatus).fontSize(16).fontColor('#70E0C2').width('100%')
       Scroll() {
         Column({ space: 14 }) {
@@ -103,7 +104,7 @@
             this.mateTvButton('原始像素', (): void => { this.mateTvSetViewNative(); })
           }
           Text(this.mateTvScaleStatus).fontSize(15).fontColor('#B1C2CA').width('100%')
-          Text('原始像素不放大画面；超出电视的部分仍可用常驻滑杆移动。')
+          Text('原始像素不放大画面；超出电视的部分仍可用右下角摇杆移动。')
             .fontSize(15).fontColor('#B1C2CA').width('100%')
           Text('画质与流畅度').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {

@@ -9,12 +9,17 @@ const root = require('node:path').resolve(__dirname, '..');
 const read = path => readFileSync(root + '/' + path, 'utf8');
 const session = read('.work/client/entry/src/main/ets/pages/RemoteDesktop.ets');
 const policy = read('.work/client/entry/src/main/ets/services/RemotePointerFocusPolicy.ets');
+const wheelPolicy = read('.work/client/entry/src/main/ets/services/RemoteWheelPolicy.ets');
+const wheelDirection = wheelPolicy.slice(wheelPolicy.indexOf('export function applyRemoteWheelDirection('), wheelPolicy.indexOf('\n}', wheelPolicy.indexOf('export function applyRemoteWheelDirection(')) + 2);
+const scrollPolicy = read('.work/client/entry/src/main/ets/services/RemoteScrollPolicy.ets');
 const fragment = read('tv/fragments/session-members.ets').split('  @Builder')[0];
 const lifecycle = read('tv/fragments/lifecycle-members.ets').split('  @Builder')[0];
 const transaction = session.slice(session.indexOf('  private clearPhysicalMouseClickTransaction()'),
   session.indexOf('  /**\n   * Native CONNECTED'));
 function create(layout = 'macos') {
+  let now = 10000;
   const context = vm.createContext({
+    Date: { now: () => now },
     deviceInfo: { deviceType: 'tv' },
     SourceTool: { MOUSE: 7, Finger: 1 }, SourceType: { Mouse: 2, KEY: 4, JOYSTICK: 5 },
     TouchType: { Down: 0, Up: 1, Move: 2, Cancel: 3 },
@@ -22,13 +27,20 @@ function create(layout = 'macos') {
     hilog: { info() {}, warn() {} }, RD_DOMAIN: 0, RD_TAG: 'test',
     router: { back() { context.returns++; } }, returns: 0,
   });
-  const source = policy.replace(/export /g, '') + '\nclass Harness {\n' +
-    fragment.replace(/@State /g, '') + transaction + lifecycle.replace(/@State /g, '') +
+  const wheel = session.slice(session.indexOf('  private sendTouchPadWheel('), session.indexOf('  private sendRemoteKeyTap('));
+  const source = policy.replace(/export /g, '') + wheelDirection.replace(/export /g, '') + scrollPolicy.replace(/export /g, '') + '\nclass Harness {\n' +
+    fragment.replace(/@State /g, '') + transaction + wheel + lifecycle.replace(/@State /g, '') +
     '\n}\nglobalThis.Harness = Harness;';
   vm.runInContext(stripTypeScriptTypes(source), context);
   const page = new context.Harness();
   const events = [];
   Object.assign(page, {
+    rustdeskTouchpadSpeed: 1, touchWheelSendCount: 0,
+    isVncSession() { return false; }, reverseWheelForCurrentProtocol() { return false; },
+    wheelSpeedForCurrentProtocol() { return 100; },
+    scrollWireForSession() { return layout === 'macos' ? 'pixels' : 'units'; },
+    toSourceSpace(x,y) { return {x,y}; },
+    sendScrollSteps(x,y,amount,wire) { events.push(['wheel', x,y,amount,wire]); return true; },
     physicalKeyboardLayout: layout, connectAttemptId: 1, sessionId: 10,
     physicalMouseClickPending: false, physicalMouseRemoteDownSent: false,
     physicalMouseButtonsDown: [], remoteMouseButtonsDown: [],
@@ -58,7 +70,7 @@ function create(layout = 'macos') {
     page.mateTvTouch({ type, sourceTool: 1, source: 1,
       changedTouches: [{ x, y, id }], stopPropagation() {} });
   }
-  return { page, events, touch, context };
+  return { page, events, touch, context, advance(ms) { now += ms; } };
 }
 test('Mac tap tolerates small sensor motion and sends exactly one click at press target', () => {
   const { page, events, touch } = create();
@@ -69,16 +81,16 @@ test('Mac tap tolerates small sensor motion and sends exactly one click at press
   assert.deepEqual(events, [['down', 100, 100, 0], ['up', 100, 100, 0]]);
 });
 test('Mac held motion crosses drag threshold and releases at final target', () => {
-  const { events, touch } = create();
-  touch(0); touch(2, 120, 110); touch(2, 150, 130); touch(1, 160, 140);
+  const { events, touch, advance } = create();
+  touch(0); advance(350); touch(2, 120, 110); touch(2, 150, 130); touch(1, 160, 140);
   assert.equal(events[0][0], 'down');
   assert.deepEqual(events[0].slice(1), [100, 100, 0]);
   assert.equal(events.filter(e => e[0] === 'down').length, 1);
   assert.deepEqual(events.at(-1), ['up', 160, 140, 0]);
 });
-test('Windows retains immediate press and release', () => {
+test('Windows stages touch until release so a swipe never presses a button', () => {
   const { events, touch } = create('windows');
-  touch(0); assert.deepEqual(events, [['down', 100, 100, 0]]);
+  touch(0); assert.deepEqual(events, []);
   touch(1); assert.equal(events.length, 2);
 });
 test('Cancel before a Mac drag cannot create an accidental click', () => {
@@ -86,7 +98,7 @@ test('Cancel before a Mac drag cannot create an accidental click', () => {
   assert.deepEqual(events, []);
 });
 test('Cancel after a drag releases the held button even when input is blocked', () => {
-  const { page, events, touch } = create(); touch(0); touch(2, 120, 110);
+  const { page, events, touch, advance } = create(); touch(0); advance(350); touch(2, 120, 110);
   page.allowed = false; touch(3); touch(1);
   assert.equal(events.filter(e => e[0] === 'up').length, 1);
   assert.equal(page.mateTvTouchId, -1);
@@ -274,4 +286,31 @@ test('TV panel ownership is idempotent and closing retires only its own leases',
   assert.equal(page.sessionInputOwner.debugString().includes('MateTvDisplay'), false);
   page.sessionInputOwner.release(auth);
   assert.equal(page.sessionInputOwner.blocked(), false);
+});
+
+
+for (const layout of ['macos', 'windows']) {
+  test(`${layout} quick swipe sends wheel only, never turns into drag after a pause`, () => {
+    const { page, events, touch, advance } = create(layout);
+    touch(0); advance(40); touch(2,100,80); advance(500); touch(2,100,60); touch(1,100,60);
+    page.mateTvActivate({source:1,x:100,y:60});
+    assert.equal(events.filter(e => e[0] === 'down' || e[0] === 'up').length, 0);
+    assert.equal(events.length, 2);
+    assert.equal(events[0][0], 'wheel'); assert.ok(events[0][3] < 0);
+    assert.equal(events[0][4], layout === 'macos' ? 'pixels' : 'units');
+  });
+}
+test('Gesture cancellation releases input and the next tap still works', () => {
+  const { page, events, touch, advance } = create();
+  touch(0); advance(400); touch(2,120,100); page.mateTvCancelDrag();
+  touch(1,120,100); touch(0); touch(1);
+  assert.equal(events.filter(e => e[0] === 'down').length, 2);
+  assert.equal(events.filter(e => e[0] === 'up').length, 2);
+  assert.equal(page.mateTvTouchGesture, 'idle');
+});
+test('Physical mouse and real wheel input remain owned by upstream handlers', () => {
+  const { page, events } = create();
+  assert.equal(page.mateTvObserveMouse({x:100,y:100,sourceTool:7,action:1,button:1}), false);
+  page.mateTvTouch({type:0,sourceTool:7,source:2,changedTouches:[{x:100,y:100,id:1}]});
+  assert.deepEqual(events, []); assert.equal(page.mateTvTouchId, -1);
 });
