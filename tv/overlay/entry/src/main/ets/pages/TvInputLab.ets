@@ -1,5 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
+import { TvAudioProbe } from '../services/TvAudioProbe';
 
 @Entry
 @Component
@@ -7,6 +8,30 @@ struct TvInputLab {
   @State private events: string[] = [];
   @State private text: string = '';
   @State private count: number = 0;
+  @State private audioTesting: boolean = false;
+  @State private audioTestFailed: boolean = false;
+  private audioProbe: TvAudioProbe = new TvAudioProbe();
+  private audioGeneration: number = 0;
+
+  private cancelAudioTest(): void {
+    this.audioGeneration++;
+    this.audioProbe.cancel();
+    this.audioTesting = false;
+  }
+
+  onPageHide(): void { this.cancelAudioTest(); }
+  aboutToDisappear(): void { this.cancelAudioTest(); }
+
+  private async testAudio(): Promise<void> {
+    if (this.audioTesting) { return; }
+    const generation = ++this.audioGeneration;
+    this.audioTesting = true;
+    this.audioTestFailed = false;
+    const result = await this.audioProbe.play();
+    if (generation !== this.audioGeneration) { return; }
+    this.audioTesting = false;
+    this.audioTestFailed = result === 'failed';
+  }
 
   private record(value: string): void {
     this.count++;
@@ -21,7 +46,13 @@ struct TvInputLab {
           Text(deviceInfo.deviceType + ' · API ' + deviceInfo.sdkApiVersion.toString())
             .fontSize(18).fontColor('#B1C2CA')
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-        Button('返回').fontSize(22).height(52).onClick((): void => { router.back(); })
+        Button(this.audioTesting ? '播放中…' : (this.audioTestFailed ? '重试声音' : '测试声音'))
+          .fontSize(20).height(48).margin({ right: 12 }).enabled(!this.audioTesting)
+          .onClick((): void => { this.testAudio(); })
+        Button('返回').fontSize(22).height(52).onClick((): void => {
+          this.cancelAudioTest();
+          router.back();
+        })
       }.width('100%')
       Row({ space: 24 }) {
         Column({ space: 16 }) {
