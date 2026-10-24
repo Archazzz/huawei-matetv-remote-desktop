@@ -41,6 +41,9 @@ int main() {
         assert(std::abs(sample(bytes,(rate-1)*2+1)+998)<=2);
         assert(gain.setDb(30)); bytes=constant(rate,200,-100); process(gain,bytes);
         assert(std::abs(sample(bytes,(rate-1)*2)-6325)<=10);
+        assert(gain.setDb(60)); bytes=constant(rate,5,-10); process(gain,bytes);
+        assert(std::abs(sample(bytes,(rate-1)*2)-5000)<=5);
+        assert(std::abs(sample(bytes,(rate-1)*2+1)+10000)<=10);
     }
     { // Loud peaks have linked stereo attenuation, never per-channel hard clipping.
         RemoteAudioGain gain; gain.setDb(30);
@@ -56,6 +59,17 @@ int main() {
             assert(std::abs(left+2*right)<=1); // Preserve image and channel ratio.
         }
         assert(sample(bytes,2) < 0 && std::abs(sample(bytes,2)) < sample(bytes,0));
+    }
+    { // Maximum supported boost still bounds extreme PCM without wrapping or channel imbalance.
+        RemoteAudioGain gain; assert(gain.setDb(60));
+        auto warmup=constant(rate,5,-10); process(gain,warmup);
+        auto peaks=constant(rate/4,-32768,16384); process(gain,peaks);
+        for (int frame=0; frame<rate/4; ++frame) {
+            const int left=sample(peaks,frame*2), right=sample(peaks,frame*2+1);
+            assert(left<0 && right>0);
+            assert(std::abs(left)<=29490 && std::abs(right)<=29490);
+            assert(std::abs(left+2*right)<=1);
+        }
     }
     { // A full-scale transient cannot overshoot; recovery takes time, not one sample.
         RemoteAudioGain gain; gain.setDb(30);
@@ -82,7 +96,7 @@ int main() {
     }
     { // Invalid settings do not replace the current target or damage buffers.
         RemoteAudioGain gain;
-        assert(!gain.setDb(-1)); assert(!gain.setDb(31));
+        assert(!gain.setDb(-1)); assert(!gain.setDb(61));
         assert(!gain.setDb(std::numeric_limits<float>::infinity()));
         assert(!gain.setDb(std::numeric_limits<float>::quiet_NaN()));
         auto bytes=constant(10,1000,-1000); const auto original=bytes;

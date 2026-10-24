@@ -10,7 +10,7 @@ namespace MateTv {
 // the renderer's serialized PCM callback. No system or device volume is touched.
 class RemoteAudioGain {
 public:
-    static constexpr float kMaxDb = 30.0f;
+    static constexpr float kMaxDb = 60.0f;
     static constexpr float kPeakCeiling = 29490.0f; // 90% of positive S16 full scale.
 
     bool setDb(float db) {

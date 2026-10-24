@@ -20,7 +20,7 @@
 
   private mateTvSetAudioGain(value: number, persist: boolean): void {
     if (!Number.isFinite(value)) { return; }
-    this.mateTvAudioGainDb = Math.max(0, Math.min(30, Math.round(value / 3) * 3));
+    this.mateTvAudioGainDb = Math.max(0, Math.min(60, Math.round(value / 3) * 3));
     this.mateTvApplyAudioGain();
     if (persist && this.hostId !== '') {
       const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
@@ -34,7 +34,7 @@
     const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
     const savedGain: number = prefs.getSync('mateTvAudioGainDb:' + this.hostId, 0) as number;
     this.mateTvAudioGainDb = Number.isFinite(savedGain) ?
-      Math.max(0, Math.min(30, Math.round(savedGain / 3) * 3)) : 0;
+      Math.max(0, Math.min(60, Math.round(savedGain / 3) * 3)) : 0;
     this.mateTvAudioGainSession = 0;
     this.mateTvAudioGainApplied = -1;
     // TvHome bypasses upstream HostListPage, which normally loads these
@@ -137,7 +137,7 @@
             Text(this.mateTvAudioGainDb === 0 ? '原始音量' : '+' + this.mateTvAudioGainDb.toString() + ' dB')
               .fontSize(16).fontColor('#70E0C2')
           }.width('100%')
-          Slider({ value: this.mateTvAudioGainDb, min: 0, max: 30, step: 3 })
+          Slider({ value: this.mateTvAudioGainDb, min: 0, max: 60, step: 3 })
             .width('100%').selectedColor('#70E0C2').blockColor('#D6F5ED')
             .accessibilityText('远程声音增益')
             .onChange((value: number, mode: SliderChangeMode): void => {

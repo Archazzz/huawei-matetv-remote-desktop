@@ -346,7 +346,7 @@ napi_value NapiPollAudioInterruptRecovery(napi_env env, napi_callback_info info)
     loader.write_text(replace_once(loader.read_text(),
         '  pollAudioInterruptRecovery(foreground: boolean, sessionId: number): void {',
         '''  setRemoteAudioGain(gainDb: number, sessionId: number): boolean {
-    if (sessionId <= 0 || !Number.isFinite(gainDb) || gainDb < 0 || gainDb > 30) { return false; }
+    if (sessionId <= 0 || !Number.isFinite(gainDb) || gainDb < 0 || gainDb > 60) { return false; }
     try { return rdpnapi.setRemoteAudioGain(gainDb, sessionId); } catch (_) { return false; }
   }
 

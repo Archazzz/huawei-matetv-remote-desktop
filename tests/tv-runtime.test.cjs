@@ -582,8 +582,8 @@ test('Remote gain applies only to the live session, retries unavailable audio an
   assert.equal(saved.get('mateTvAudioGainDb:computer-a'), 24);
   page.sessionId = 2; page.hostId = 'computer-b';
   page.mateTvSetAudioGain(99, true);
-  assert.deepEqual(calls.at(-1), [30, 2]);
-  assert.equal(saved.get('mateTvAudioGainDb:computer-b'), 30);
+  assert.deepEqual(calls.at(-1), [60, 2]);
+  assert.equal(saved.get('mateTvAudioGainDb:computer-b'), 60);
   assert.equal(saved.get('mateTvAudioGainDb:computer-a'), 24);
   page.mateTvSetAudioGain(NaN, true);
   assert.equal(flushes, 2);

@@ -83,8 +83,9 @@ int main() {
     // A later setting arrives while lazy native Init is still in flight.
     assert(set(24,7)); assert(player->gain==18);
     assert(InstallSessionPlayer(7,player,10,0)); assert(player->gain==24);
+    assert(set(60,7)); assert(player->gain==60 && slot.remoteGainDb==60);
     assert(set(9,7)); assert(player->gain==9 && slot.remoteGainDb==9);
-    for (double invalid : {-1.,31.,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
+    for (double invalid : {-1.,61.,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()}) {
         assert(!set(invalid,7)); assert(player->gain==9 && slot.remoteGainDb==9);
     }
     assert(!set(20,0)); assert(!set(20,8)); assert(player->gain==9);
