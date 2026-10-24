@@ -207,6 +207,11 @@ def main():
     startup.write_text(startup.read_text().replace("'pages/GuidePage'", "'pages/TvHome'").replace("'pages/LoginPage'", "'pages/TvInputLab'"))
     remote = dest / 'entry/src/main/ets/pages/RemoteDesktop.ets'
     remote.write_text(patch_session(remote.read_text()))
+    # HitTestMode.None excludes only the cursor container. Its Image/Stack
+    # descendants still intercept touches exactly at the pointer hotspot.
+    cursor = dest / 'entry/src/main/ets/components/RemoteCursorOverlay.ets'
+    cursor.write_text(replace_once(cursor.read_text(),
+        '.hitTestBehavior(HitTestMode.None)', '.hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)'))
     for resource in (dest / 'AppScope/resources').glob('*/element/string.json'):
         data = json.loads(resource.read_text())
         for item in data.get('string', []):
