@@ -1,0 +1,15 @@
+{
+  "forwards": [
+    {
+      "name": "remote-macbook",
+      "listen_host": "127.0.0.1",
+      "listen_port": 21119,
+      "target_host": "100.64.0.10",
+      "target_port": 21118,
+      "allowed_clients": ["127.0.0.1/32"],
+      "max_connections": 2,
+      "idle_seconds": 300,
+      "connect_timeout": 10
+    }
+  ]
+}

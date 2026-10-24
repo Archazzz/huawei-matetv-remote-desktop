@@ -1,0 +1,17 @@
+MateTV Remote Desktop
+Copyright (C) 2026 MateTV Remote contributors
+
+This project adapts RemoteDesktopHarmonyOS by Li Jiong (Mydstiny) and
+contributors, licensed AGPL-3.0-or-later.
+https://github.com/Mydstiny/RemoteDesktopHarmonyOS
+Pinned source: fb8dc79d2c4700374fe54d2ee1c3a2d6b05830dd
+
+The TV overlay is applied to that source by scripts/prepare_client.py.
+Upstream copyright notices and third-party license/provenance documents
+remain in the materialized client. Native dependencies retain their own
+licenses; see .work/client/docs/compliance and the upstream source.
+
+This project is independent of Huawei, RustDesk, and Tailscale. Product names
+identify compatibility targets and do not imply endorsement.
+
+Repository code is licensed AGPL-3.0-or-later unless stated otherwise.

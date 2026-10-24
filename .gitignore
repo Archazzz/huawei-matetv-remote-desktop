@@ -1,0 +1,26 @@
+# Local research contains household details; publish the general design instead.
+/RESEARCH.md
+/local/
+/.work/
+/dist/
+/.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+*.p12
+*.p7b
+*.cer
+*.keystore
+*.pem
+*.key
+*.hap
+*.app
+node_modules/
+oh_modules/
+.hvigor/
+**/build/
+**/local.properties
+**/build-profile.json5
+!**/entry/build-profile.json5
+**/agconnect-services.json
