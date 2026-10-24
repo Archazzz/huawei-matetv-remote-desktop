@@ -11,14 +11,13 @@ import { AccountSessionCoordinator } from '../AccountSessionCoordinator';
 import { HostSyncService } from '../HostSyncService';
 import { TV_COMPUTER_PRESETS } from '../TvProvisionedComputers';
 import { TvNotificationEvent, TvNotificationBatch, TvNotificationRoute, notificationKey,
-  validNotificationEvent, validNotificationBatch, resolveNotificationHost } from './TvNotificationPolicy';
+  validNotificationEvent, validNotificationBatch, resolveNotificationHost,
+  SeenNotification, NotificationClick, SavedNotifications, codexOnlySnapshot } from './TvNotificationPolicy';
 import { TV_PUSH_NONCE, TV_PUSH_INSTALLATION, validPushInstallation, validPushClick, pushErrorText } from './TvPushPolicy';
 
 interface TvNotificationConfig {
   version: number; endpoint: string; token: string; caResource: string; publicKeyHash: string;
 }
-interface SeenNotification { key: string; expiresAt: number; }
-interface NotificationClick { token: string; key: string; expiresAt: number; }
 interface PushRegistration { registered: boolean; cloudConfigured: boolean; }
 interface PushResolution { event: TvNotificationEvent; streamId: string; scope: string; }
 interface PushRevocation { revoked: boolean; }
@@ -28,9 +27,6 @@ interface PushResolveRequest { installationId: string; clickNonce: string; scope
 class PushHttpError extends Error {
   code: number;
   constructor(code: number) { super('push response rejected'); this.code = code; }
-}
-interface SavedNotifications {
-  streamId: string; cursor: number; events: TvNotificationEvent[]; seen: SeenNotification[]; clicks: NotificationClick[];
 }
 export const TV_NOTIFICATION_CLICK: string = 'screenLinkNotificationClick';
 export class TvNotificationService {
@@ -67,6 +63,7 @@ export class TvNotificationService {
   private pendingPushInstallation: string = '';
   private pushResolveBusy: boolean = false;
   private pushRefreshAttempted: boolean = false;
+  private retiringNotifications: boolean = false;
 
   attach(context: common.UIAbilityContext): void { this.context = context; }
   receiveWant(want: Want): void {
@@ -93,14 +90,14 @@ export class TvNotificationService {
     this.pendingWantToken = '';
     const click: NotificationClick | undefined = this.clicks.find((item: NotificationClick): boolean =>
       item.token === token && item.expiresAt > Date.now());
-    if (click !== undefined) { this.route.request(click.key); }
+    if (click !== undefined) { this.click(click.key); }
   }
   setForeground(value: boolean): void {
     this.foreground = value;
     this.generation++;
     if (this.timer >= 0) { clearTimeout(this.timer); this.timer = -1; }
     this.request?.destroy(); this.request = null;
-    if (value) { this.schedule(100); void this.resumePush(); }
+    if (value) { void this.clearRetiredSystemNotifications(); this.schedule(100); void this.resumePush(); }
     this.changed();
   }
   initialize(context: common.UIAbilityContext): void {
@@ -117,6 +114,8 @@ export class TvNotificationService {
     this.scope = scope;
     this.events = []; this.seen = []; this.clicks = []; this.cursor = 0; this.streamId = '';
     this.store = preferences.getPreferencesSync(context, { name: 'ScreenLinkNotifications' });
+    this.purgeRetiredHistory();
+    void this.clearRetiredSystemNotifications();
     this.installationId = this.store.getSync('pushInstallationId', '') as string;
     if (!validPushInstallation(this.installationId)) {
       this.installationId = util.generateRandomUUID(false);
@@ -133,16 +132,10 @@ export class TvNotificationService {
     this.enabled = this.store.getSync(scope + ':enabled', false) === true;
     this.notificationId = this.store.getSync('notificationId', 810000) as number;
     try {
-      const saved: SavedNotifications = JSON.parse(this.store.getSync(scope + ':inbox', '{}') as string) as SavedNotifications;
-      const now: number = Date.now();
-      if (Array.isArray(saved.events)) { this.events = saved.events.filter((e: TvNotificationEvent): boolean => validNotificationEvent(e, now)).slice(-100); }
-      if (Array.isArray(saved.seen)) { this.seen = saved.seen.filter((e: SeenNotification): boolean =>
-        typeof e.key === 'string' && e.key.length <= 257 && Number.isSafeInteger(e.expiresAt) && e.expiresAt > now).slice(-10000); }
-      if (Array.isArray(saved.clicks)) { this.clicks = saved.clicks.filter((item: NotificationClick): boolean =>
-        typeof item.token === 'string' && /^[a-f0-9-]{36}$/.test(item.token) &&
-        typeof item.key === 'string' && item.key.length <= 257 && Number.isSafeInteger(item.expiresAt) && item.expiresAt > now).slice(-100); }
-      if (typeof saved.streamId === 'string') { this.streamId = saved.streamId; }
-      if (Number.isSafeInteger(saved.cursor) && saved.cursor >= 0) { this.cursor = saved.cursor; }
+      const saved: SavedNotifications = codexOnlySnapshot(
+        JSON.parse(this.store.getSync(scope + ':inbox', '{}') as string) as SavedNotifications, Date.now());
+      this.events = saved.events; this.seen = saved.seen; this.clicks = saved.clicks;
+      this.streamId = saved.streamId; this.cursor = saved.cursor;
     } catch (_error) { /* Malformed local state is discarded. */ }
     try {
       const decoder: util.TextDecoder = util.TextDecoder.create('utf-8', { fatal: true });
@@ -162,6 +155,32 @@ export class TvNotificationService {
     void this.resumePush();
     this.schedule(100);
     this.changed();
+  }
+  private purgeRetiredHistory(): void {
+    if (this.store === null) { return; }
+    const values: Object = this.store.getAllSync();
+    for (const key of Object.keys(values)) {
+      if (!key.endsWith(':inbox')) { continue; }
+      let clean: SavedNotifications;
+      try {
+        clean = codexOnlySnapshot(JSON.parse(this.store.getSync(key, '{}') as string) as SavedNotifications, Date.now());
+      } catch (_error) {
+        clean = { streamId: '', cursor: 0, events: [], seen: [], clicks: [] };
+      }
+      this.store.putSync(key, JSON.stringify(clean));
+    }
+    this.store.flushSync();
+  }
+  private async clearRetiredSystemNotifications(): Promise<void> {
+    if (this.store === null || this.retiringNotifications || this.store.getSync('codexOnlySystemCleanup', false) === true) { return; }
+    this.retiringNotifications = true;
+    try {
+      // Old cloud notifications do not carry a locally enumerable source ID.
+      // This API removes only this application's notifications, never others'.
+      await notificationManager.cancelAll();
+      this.store.putSync('codexOnlySystemCleanup', true); this.store.flushSync();
+    } catch (_error) { /* Retry on next foreground; do not claim cleanup succeeded. */ }
+    finally { this.retiringNotifications = false; }
   }
   configured(): boolean { return this.config !== null; }
   isEnabled(): boolean { return this.enabled; }
@@ -326,7 +345,11 @@ export class TvNotificationService {
       return await notificationManager.isNotificationEnabled();
     } catch (_error) { return false; }
   }
-  click(key: string): void { this.route.request(key); this.changed(); }
+  click(key: string): void {
+    if (this.events.some((event: TvNotificationEvent): boolean => notificationKey(event) === key && validNotificationEvent(event, Date.now()))) {
+      this.route.request(key); this.changed();
+    }
+  }
   pendingHost(): string {
     if (this.route.pendingKey.length === 0 || this.scope.length === 0) { return ''; }
     if (AccountSessionCoordinator.getInstance().currentScope().ownerScopeId !== this.scope) { return ''; }
@@ -402,6 +425,7 @@ export class TvNotificationService {
     }
   }
   private async publish(event: TvNotificationEvent, generation: number): Promise<void> {
+    if (!validNotificationEvent(event, Date.now())) { return; }
     try {
       if (!await notificationManager.isNotificationEnabled() || this.context === null ||
           generation !== this.generation || !this.foreground || !this.enabled) { return; }

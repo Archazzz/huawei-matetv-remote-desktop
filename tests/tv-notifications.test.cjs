@@ -18,7 +18,7 @@ function fixture() {
     AccountSessionCoordinator: { getInstance: () => ({ currentScope: () => ({ ownerScopeId: 'scope' }) }) },
     HostSyncService: { getInstance: () => ({ getAllHosts: () => hosts }) },
     TV_COMPUTER_PRESETS: [{id:'mini',address:'private-host',port:21118}],
-    notificationManager: { isNotificationEnabled: async () => false },
+    notificationManager: { isNotificationEnabled: async () => false, cancelAll: async () => calls.push(["cancel-own-notifications"]) },
     pushService: {getToken:async()=> 'test-push-token'},
     http: { RequestMethod: {GET:'GET',POST:'POST'}, HttpDataType: {STRING:'STRING'}, createHttp: () => ({
       request: async (url,options) => { calls.push(['request',url,options]); return typeof reply === 'function' ? reply(url,options) : reply; }, destroy: () => {} }) },
@@ -33,9 +33,9 @@ function fixture() {
   const service=box.service;
   service.scope='scope'; service.foreground=true; service.enabled=true;
   service.config={endpoint:'https://private-host:21121',token:'private-token',publicKeyHash:'pin'};
-  service.caPath='/sandbox/ca.pem'; service.store={putSync:(k,v)=>state.set(k,v),flushSync:()=>{}};
+  service.caPath='/sandbox/ca.pem'; service.store={getSync:(k,d)=>state.has(k)?state.get(k):d,getAllSync:()=>Object.fromEntries(state),putSync:(k,v)=>state.set(k,v),flushSync:()=>{}};
   service.context={};service.installationId='12345678-1234-1234-1234-123456789abc';
-  return {box,service,calls,hosts,timers,policy:box.policy,setReply:r=>reply=r};
+  return {box,state,service,calls,hosts,timers,policy:box.policy,setReply:r=>reply=r};
 }
 function event(overrides={}) {
   return {cursor:1,eventId:'event-1',deviceId:'mini',deviceName:'Computer',hostId:'preset:mini',appId:'codex',appName:'Codex',title:'Done',body:'Task complete',createdAt:Date.now()-1000,expiresAt:Date.now()+60000,contentState:'complete',...overrides};
@@ -43,7 +43,7 @@ function event(overrides={}) {
 function host(overrides={}) {return {id:'saved-host',userId:'scope',protocol:'rustdesk',rustdeskDirectEnabled:true,rustdeskDirectHost:'private-host',rustdeskDirectPort:21118,...overrides};}
 test('actual event validator rejects malformed, expired and unapproved sources',()=>{
  const {policy:p}=fixture(); const now=Date.now();assert.equal(p.validNotificationEvent(event(),now),true);
- for(const e of [null,{},event({appId:'other'}),event({body:'\0'}),event({expiresAt:now-1}),event({eventId:'../../bad'}),event({cursor:NaN}),event({contentState:'invented'})]) assert.equal(p.validNotificationEvent(e,now),false);
+ for(const e of [null,{},event({appId:'other'}),event({appId:'wechat',appName:'微信'}),event({appId:'codex',appName:'微信'}),event({body:'\0'}),event({expiresAt:now-1}),event({eventId:'../../bad'}),event({cursor:NaN}),event({contentState:'invented'})]) assert.equal(p.validNotificationEvent(e,now),false);
  assert.equal(p.validNotificationBatch({streamId:'s',events:[event({cursor:2}),event({cursor:1})],nextCursor:2,resetRequired:false}),false);
 });
 test('preset route resolves only one saved host in the current scope',()=>{
@@ -161,4 +161,36 @@ test('lost registration response queues revocation so orphan cloud subscription 
  f.setReply({responseCode:503,result:'unavailable'});await f.service.setBackgroundEnabled(true);
  assert.equal(f.service.isBackgroundEnabled(),false);assert.equal(f.service.pushRevokePending,true);
  assert.equal(f.calls.length,2);
+});
+
+test('privacy migration removes retired history and click mappings across all saved scopes',()=>{
+ const f=fixture(), good=event(), retired=event({eventId:'retired',appId:'wechat',appName:'微信'});
+ const token='12345678-1234-1234-1234-123456789abc';
+ const snapshot={streamId:'s',cursor:7,events:[good,retired],seen:[{key:'mini/event-1',expiresAt:good.expiresAt},{key:'mini/retired',expiresAt:retired.expiresAt}],clicks:[{key:'mini/retired',token,expiresAt:retired.expiresAt}]};
+ for(const scope of ['scope','inactive']) f.state.set(scope+':inbox',JSON.stringify(snapshot));
+ f.state.set('malformed:inbox','not-json');f.state.set('pushEnabled',true);
+ f.service.purgeRetiredHistory();
+ for(const scope of ['scope','inactive']) {
+  const clean=JSON.parse(f.state.get(scope+':inbox'));
+  assert.deepEqual(clean.events.map(e=>e.appId),['codex']);assert.equal(clean.seen.length,1);assert.equal(clean.clicks.length,0);assert.equal(clean.cursor,7);
+ }
+ assert.equal(JSON.parse(f.state.get('malformed:inbox')).events.length,0);assert.equal(f.state.get('pushEnabled'),true);
+});
+test('one-time system cleanup only uses current-app cancellation and retries failures',async()=>{
+ const f=fixture();let attempts=0;
+ f.box.notificationManager.cancelAll=async()=>{attempts++;if(attempts===1)throw Error('temporary');};
+ await f.service.clearRetiredSystemNotifications();assert.equal(f.state.has('codexOnlySystemCleanup'),false);
+ await f.service.clearRetiredSystemNotifications();assert.equal(f.state.get('codexOnlySystemCleanup'),true);
+ await f.service.clearRetiredSystemNotifications();assert.equal(attempts,2);
+});
+test('retired sources cannot enter via polling, publish, local click or cloud resolve',async()=>{
+ const f=fixture(), retired=event({appId:'wechat',appName:'微信'});f.hosts.push(host());
+ f.setReply({responseCode:200,result:JSON.stringify({streamId:'s',events:[retired],nextCursor:1,resetRequired:false})});
+ await f.service.poll();assert.equal(f.service.events.length,0);assert.equal(f.service.cursor,1);
+ f.service.events=[retired];f.service.click('mini/event-1');assert.equal(f.service.route.pendingKey,'');
+ f.box.notificationManager.isNotificationEnabled=async()=>{throw Error('must not publish');};
+ await f.service.publish(retired,f.service.generation);
+ f.service.events=[];f.service.backgroundEnabled=true;f.service.pendingPushNonce='n'.repeat(43);f.service.pendingPushInstallation=f.service.installationId;
+ f.setReply({responseCode:200,result:JSON.stringify({event:retired,streamId:'s',scope:'scope'})});
+ await f.service.resolvePushClick();assert.equal(f.service.events.length,0);assert.equal(f.service.route.pendingKey,'');
 });

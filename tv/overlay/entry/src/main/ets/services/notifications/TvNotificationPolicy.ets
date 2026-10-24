@@ -40,7 +40,7 @@ export function validNotificationEvent(event: TvNotificationEvent, now: number):
     typeof event.deviceId === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(event.deviceId) &&
     boundedText(event.deviceName, 128) && event.deviceName.length > 0 &&
     boundedText(event.hostId, 160) && event.hostId.length > 0 &&
-    (event.appId === 'codex' || event.appId === 'wechat') &&
+    event.appId === 'codex' && event.appName === 'Codex' &&
     boundedText(event.appName, 128) && event.appName.length > 0 &&
     boundedText(event.title, 512) && boundedText(event.body, 8192) &&
     (event.title.length > 0 || event.body.length > 0) &&
@@ -90,4 +90,27 @@ export class TvNotificationRoute {
     if (remoteMounted) { return targetHost === activeHost ? 'same' : 'leave'; }
     return 'open';
   }
+}
+
+export interface SeenNotification { key: string; expiresAt: number; }
+export interface NotificationClick { token: string; key: string; expiresAt: number; }
+export interface SavedNotifications {
+  streamId: string; cursor: number; events: TvNotificationEvent[]; seen: SeenNotification[]; clicks: NotificationClick[];
+}
+// Migration also runs across inactive account scopes. Retired sources and their
+// click mappings must disappear from disk, not merely be hidden from the UI.
+export function codexOnlySnapshot(saved: SavedNotifications, now: number): SavedNotifications {
+  const events: TvNotificationEvent[] = saved !== null && typeof saved === 'object' && Array.isArray(saved.events)
+    ? saved.events.filter((event: TvNotificationEvent): boolean => validNotificationEvent(event, now)).slice(-100) : [];
+  const keys: string[] = events.map((event: TvNotificationEvent): string => notificationKey(event));
+  const seen: SeenNotification[] = saved !== null && typeof saved === 'object' && Array.isArray(saved.seen)
+    ? saved.seen.filter((item: SeenNotification): boolean => item !== null && keys.includes(item.key) &&
+      Number.isSafeInteger(item.expiresAt) && item.expiresAt > now).slice(-10000) : [];
+  const clicks: NotificationClick[] = saved !== null && typeof saved === 'object' && Array.isArray(saved.clicks)
+    ? saved.clicks.filter((item: NotificationClick): boolean => item !== null && keys.includes(item.key) &&
+      typeof item.token === 'string' && /^[a-f0-9-]{36}$/.test(item.token) &&
+      Number.isSafeInteger(item.expiresAt) && item.expiresAt > now).slice(-100) : [];
+  return { events, seen, clicks,
+    streamId: saved !== null && typeof saved === 'object' && typeof saved.streamId === 'string' ? saved.streamId : '',
+    cursor: saved !== null && typeof saved === 'object' && Number.isSafeInteger(saved.cursor) && saved.cursor >= 0 ? saved.cursor : 0 };
 }
