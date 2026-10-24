@@ -28,6 +28,7 @@ jobs:
       - run: node --test tests/tv-runtime.test.cjs
       - run: node --test tests/tv-audio-probe.test.cjs
       - run: python scripts/test_decoder_recovery.py
+      - run: python scripts/test_audio_interrupt_recovery.py
       - run: c++ -std=c++17 tests/tv-audio-level.test.cpp -o /tmp/tv-audio-test && /tmp/tv-audio-test
       - run: c++ -std=c++17 tests/tv-decode-quality.test.cpp -o /tmp/tv-decode-test && /tmp/tv-decode-test
       - uses: dtolnay/rust-toolchain@stable

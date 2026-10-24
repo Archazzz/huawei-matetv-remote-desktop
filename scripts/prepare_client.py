@@ -57,6 +57,161 @@ def replace_once(text: str, before: str, after: str) -> str:
     return text.replace(before, after, 1)
 
 
+def patch_audio_interrupt_recovery(dest: Path) -> None:
+    """Defer OHAudio interruption recovery to the existing foreground UI tick."""
+    cpp = dest / 'entry/src/main/cpp/audio'
+    header = cpp / 'audio_player.h'
+    text = header.read_text()
+    text = replace_once(text, '#include "audio_activity_state.h"',
+                        '#include "audio_activity_state.h"\n#include "matetv_audio_interrupt.h"')
+    text = replace_once(text, '    bool IsRunning() const;',
+                        '    bool IsRunning() const;\n    bool CanAcceptPcm() const;\n'
+                        '    bool IsSystemInterrupted() const { return interruptRecovery_.blocksPlayback(); }\n'
+                        '    void PollInterruptRecovery(bool foreground);')
+    text = replace_once(text, '    bool suspendedForInactivity_ = false;',
+                        '    bool suspendedForInactivity_ = false;\n    MateTv::AudioInterruptRecovery interruptRecovery_;')
+    text = replace_once(text, '    static OH_AudioData_Callback_Result OnWriteData(',
+                        '    static void OnInterrupt(OH_AudioRenderer*, void*, OH_AudioInterrupt_ForceType, OH_AudioInterrupt_Hint);\n'
+                        '    static OH_AudioData_Callback_Result OnWriteData(')
+    header.write_text(text)
+    source = cpp / 'audio_player.cpp'
+    text = source.read_text()
+    text = replace_once(text,
+        '        builder, AudioPlayer::OnWriteData, callbackContext_.get());',
+        '        builder, AudioPlayer::OnWriteData, callbackContext_.get());\n'
+        '    // Both are independent setters; do not use the legacy all-callbacks setter.\n'
+        '    const auto interruptResult = OH_AudioStreamBuilder_SetRendererInterruptCallback(\n'
+        '        builder, AudioPlayer::OnInterrupt, callbackContext_.get());\n'
+        '    OH_LOG_INFO(LOG_APP, "[MateTvAudioInterrupt] register result=%{public}d", interruptResult);')
+    text = replace_once(text, 'size_t AudioPlayer::FrameBytes() const {',
+        '''bool AudioPlayer::CanAcceptPcm() const {
+    std::lock_guard<std::mutex> lock(lifecycleMutex_);
+    // A paused instance still owns interruption/volume state. A fresh PCM packet
+    // must not replace it with an automatically started player.
+    return renderer_ != nullptr && !destroying_ && !rendererStopped_ &&
+        (state_ == AudioPlayerState::RUNNING || state_ == AudioPlayerState::PAUSED);
+}
+
+size_t AudioPlayer::FrameBytes() const {''')
+    text = replace_once(text,
+        '         !(state_ == AudioPlayerState::PAUSED && suspendedForInactivity_)) ||',
+        '         !(state_ == AudioPlayerState::PAUSED &&\n'
+        '           (suspendedForInactivity_ || interruptRecovery_.blocksPlayback()))) ||')
+    text = replace_once(text,
+        '    const bool formatMismatch = playerLease && playerLease->IsRunning() &&',
+        '    if (playerLease && playerLease->CanAcceptPcm() && playerLease->IsSystemInterrupted()) {\n'
+        '        return playerLease->Write(data, writableSize);\n'
+        '    }\n'
+        '    const bool formatMismatch = playerLease && playerLease->CanAcceptPcm() &&')
+    text = replace_once(text,
+        '    if (playerLease && playerLease->IsRunning() && !formatMismatch) {',
+        '    if (playerLease && playerLease->CanAcceptPcm() && !formatMismatch) {')
+    text = replace_once(text, '    // OHAudio uses callback-based pull; protocol PCM is buffered here and drained',
+        '    if (interruptRecovery_.blocksPlayback()) { return static_cast<int>(size); }\n'
+        '    // OHAudio uses callback-based pull; protocol PCM is buffered here and drained')
+    text = replace_once(text,
+        'void AudioPlayer::Resume() {\n    std::lock_guard<std::mutex> lock(lifecycleMutex_);',
+        'void AudioPlayer::Resume() {\n    std::lock_guard<std::mutex> lock(lifecycleMutex_);\n'
+        '    if (interruptRecovery_.blocksPlayback()) { return; }')
+    text = replace_once(text, 'void AudioPlayer::Pause() {', '''void AudioPlayer::OnInterrupt(OH_AudioRenderer*, void* userData,
+    OH_AudioInterrupt_ForceType type, OH_AudioInterrupt_Hint hint) {
+    auto* context = static_cast<Render::CallbackAdmissionContext*>(userData);
+    if (!context) { return; }
+    auto callbackLease = context->tryAcquire();
+    if (!callbackLease) { return; }
+    const auto snapshot = callbackLease.snapshot();
+    auto ownerLease = Render::SharedSessionSinkOwnerLease().acquire(snapshot.owner);
+    if (!ownerLease) { return; }
+    const auto player = g_audioRegistry.acquire(snapshot.token, snapshot.owner);
+    if (!player) { return; }
+    // No lifecycle mutex or platform calls here: Start/Pause may synchronously re-enter.
+    if (hint == AUDIOSTREAM_INTERRUPT_HINT_PAUSE) { player->interruptRecovery_.pause(); }
+    else if (hint == AUDIOSTREAM_INTERRUPT_HINT_STOP) { player->interruptRecovery_.stop(); }
+    else if (hint == AUDIOSTREAM_INTERRUPT_HINT_RESUME) { player->interruptRecovery_.resume(); }
+    OH_LOG_INFO(LOG_APP, "[MateTvAudioInterrupt] type=%{public}d hint=%{public}d", type, hint);
+}
+
+void AudioPlayer::PollInterruptRecovery(bool foreground) {
+    std::lock_guard<std::mutex> lock(lifecycleMutex_);
+    if (!renderer_ || destroying_ || rendererStopped_ || state_ == AudioPlayerState::RELEASED) { return; }
+    const bool muted = activity_ && activity_->isMuted();
+    const uint64_t token = interruptRecovery_.claim(foreground, muted);
+    if (token == 0) {
+        // FORCE has already paused in the platform; SHARE asks the app to do so.
+        if (interruptRecovery_.blocksPlayback()) {
+            OH_AudioStream_State platformState;
+            if (OH_AudioRenderer_GetCurrentState(renderer_, &platformState) == AUDIOSTREAM_SUCCESS &&
+                platformState == AUDIOSTREAM_STATE_RUNNING) { (void)OH_AudioRenderer_Pause(renderer_); }
+        }
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> bufferLock(bufferMutex_);
+        pcmBuffer_.clear();
+        pcmReadOffset_ = 0;
+        prebuffering_ = true;
+    }
+    if (!interruptRecovery_.current(token)) { return; }
+    const auto result = OH_AudioRenderer_Start(renderer_);
+    interruptRecovery_.finish(token, result == AUDIOSTREAM_SUCCESS);
+    // A new pause/stop may arrive synchronously during Start. Never overwrite it.
+    if (interruptRecovery_.blocksPlayback()) { (void)OH_AudioRenderer_Pause(renderer_); }
+    else if (result == AUDIOSTREAM_SUCCESS) {
+        state_ = AudioPlayerState::RUNNING;
+        suspendedForInactivity_ = false;
+        if (activity_) { activity_->markResumed(); }
+    }
+    OH_LOG_INFO(LOG_APP, "[MateTvAudioInterrupt] resume result=%{public}d blocked=%{public}d",
+        result, interruptRecovery_.blocksPlayback());
+}
+
+void AudioPlayer::Pause() {''')
+    text = replace_once(text, 'napi_value NapiIsAudioPlaybackActive(napi_env env, napi_callback_info info) {',
+'''napi_value NapiPollAudioInterruptRecovery(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value args[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    napi_value undefined;
+    napi_get_undefined(env, &undefined);
+    bool foreground = false;
+    if (argc != 2 || napi_get_value_bool(env, args[0], &foreground) != napi_ok) { return undefined; }
+    const auto owner = OwnerFromSessionArg(env, args[1]);
+    auto ownerLease = Render::SharedSessionSinkOwnerLease().acquire(owner);
+    if (!ownerLease) { return undefined; }
+    int64_t handle = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_activeAudioMutex);
+        const auto slot = AudioSlotLocked(owner);
+        if (slot) { handle = slot->handle; }
+    }
+    const auto player = g_audioRegistry.acquire(handle, owner);
+    if (player) { player->PollInterruptRecovery(foreground && AudioFocusAllows(owner)); }
+    return undefined;
+}
+
+napi_value NapiIsAudioPlaybackActive(napi_env env, napi_callback_info info) {''')
+    text = replace_once(text, '    napi_create_function(env, "isAudioPlaybackActive",',
+        '    napi_create_function(env, "pollAudioInterruptRecovery", NAPI_AUTO_LENGTH, NapiPollAudioInterruptRecovery, nullptr, &fn);\n'
+        '    napi_set_named_property(env, exports, "pollAudioInterruptRecovery", fn);\n'
+        '    napi_create_function(env, "isAudioPlaybackActive",')
+    source.write_text(text)
+    for relative in ['entry/src/main/ets/types/rdpnapi.d.ts', 'entry/src/main/cpp/types/librdpnapi/index.d.ts']:
+        path = dest / relative
+        path.write_text(replace_once(path.read_text(),
+            '  export function setActiveAudioMute(mute: boolean, sessionId?: number): void;',
+            '  export function setActiveAudioMute(mute: boolean, sessionId?: number): void;\n'
+            '  export function pollAudioInterruptRecovery(foreground: boolean, sessionId: number): void;'))
+    loader = dest / 'entry/src/main/ets/services/ExtensionLoader.ets'
+    loader.write_text(replace_once(loader.read_text(),
+        '  setAudioFocusSession(sessionId: number): void {',
+        '''  pollAudioInterruptRecovery(foreground: boolean, sessionId: number): void {
+    if (sessionId <= 0) { return; }
+    try { rdpnapi.pollAudioInterruptRecovery(foreground, sessionId); } catch (_) {}
+  }
+
+  setAudioFocusSession(sessionId: number): void {'''))
+
+
 def patch_session(text: str) -> str:
     text = replace_once(text, '  private restoreFromBackground(): void {',
                         '  private performForegroundRestore(): void {')
@@ -86,6 +241,7 @@ def patch_session(text: str) -> str:
     text = replace_once(text, "    .id('RemoteDesktopPageRoot')",
                         "    .id('RemoteDesktopPageRoot')\n    .onAreaChange((_old: Area, area: Area): void => { this.mateTvMeasureControlsRoot(area); })")
     text = replace_once(text, '      this.syncRustDeskPeerInputState(sessionId);',
+                        '      this.loader.pollAudioInterruptRecovery(this.remoteKeyboardForeground() && !this.mateTvLeaving, sessionId);\n'
                         '      this.mateTvCheckVideoProgress();\n      this.syncRustDeskPeerInputState(sessionId);')
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
                         '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { if (source !== \'mouse\' && source !== \'mouseMove\') { hilog.info(RD_DOMAIN, RD_TAG, \'dropInput \' + source + \' tvPanel=1 \' + this.sessionInputOwner.debugString()); } return false; }')
@@ -325,6 +481,7 @@ def main():
         '            const auto level = MateTv::pcmLevel(out, static_cast<size_t>(audioDataSize));\n'
         '            OH_LOG_INFO(LOG_APP, "[MateTvAudioLevel] stage=output peak=%{public}u rms=%{public}u", level.peak, level.rms);')
     audio.write_text(audio_text)
+    patch_audio_interrupt_recovery(dest)
     runtime = dest / 'rustdesk_ffi/src/lib.rs'
     runtime_text = runtime.read_text()
     runtime_text = replace_once(runtime_text,
