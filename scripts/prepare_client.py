@@ -237,6 +237,18 @@ def main():
     bridge_text = replace_once(bridge_text, '            return rustdesk_set_image_quality(handle, quality);',
         '            MateTv::setDecodeQuality(quality);\n            return rustdesk_set_image_quality(handle, quality);')
     bridge.write_text(bridge_text)
+    hardware = dest / 'entry/src/main/cpp/render/hw_decoder.cpp'
+    hardware_text = hardware.read_text()
+    hardware_text = replace_once(hardware_text,
+        '            admission == Render::VideoFrameAdmission::AcceptAfterSoftDrop &&',
+        '            (admission == Render::VideoFrameAdmission::AcceptAfterSoftDrop ||\n             admission == Render::VideoFrameAdmission::DropAndWaitForKeyframe) &&')
+    hardware_text = replace_once(hardware_text,
+        '        ownedAdmission = HardwareDecodeAdmission::Backpressure;\n        return 0;\n    }\n    if (droppedIncomingForCapacity)',
+        '        ownedAdmission = HardwareDecodeAdmission::Backpressure;\n        return requestKeyframe ? kDecodeKeyframeRequired : 0;\n    }\n    if (droppedIncomingForCapacity)')
+    hardware_text = replace_once(hardware_text,
+        '                return {result, DecoderNapi::OwnedSubmitStatus::Backpressure};',
+        '                return {result, result == DecoderNapi::kDecodeHardwareKeyframeRequired ?\n                    DecoderNapi::OwnedSubmitStatus::NeedKeyframe : DecoderNapi::OwnedSubmitStatus::Backpressure};')
+    hardware.write_text(hardware_text)
     protocol = dest / 'rustdesk_ffi/src/protocol/session.rs'
     protocol_text = protocol.read_text()
     quality_call = 'opt.set_image_quality(Self::image_quality_from_pref(image_quality));'
