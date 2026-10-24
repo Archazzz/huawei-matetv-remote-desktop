@@ -1,6 +1,7 @@
   @State private mateTvLeaving: boolean = false;
 
   private mateTvLeaveSession(): void {
+    this.mateTvStopJoystick();
     if (this.mateTvLeaving) { return; }
     this.mateTvCancelDrag();
     this.mateTvCloseText();

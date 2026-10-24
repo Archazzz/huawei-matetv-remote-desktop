@@ -75,7 +75,7 @@ def patch_session(text: str) -> str:
     text = replace_once(text, '  private handleXComponentKey = (event: KeyEvent): boolean => {',
                         '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen || this.mateTvDisplayOpen) { return false; }\n    if (this.mateTvMode && event.keyCode === 2016) { return false; }')
     text = replace_once(text, '  aboutToDisappear(): void {',
-                        '  aboutToDisappear(): void {\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();\n    this.mateTvCloseDisplay();')
+                        '  aboutToDisappear(): void {\n    this.mateTvStopJoystick();\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();\n    this.mateTvCloseDisplay();')
     text = replace_once(text, '  private handleXComponentMouse = (event: MouseEvent): void => {',
                         '  private handleXComponentMouse = (event: MouseEvent): void => {\n    if (this.mateTvObserveMouse(event)) { return; }')
     text = replace_once(text, "message: '远端未开放输入控制，请在被控手机开启 RustDesk 输入控制/无障碍权限',",
@@ -106,7 +106,7 @@ def patch_session(text: str) -> str:
         text = replace_once(text, '  private ' + method + ': void {',
                             '  private ' + method + ': void {\n    if (this.mateTvMode) { return; }')
     text = replace_once(text, '    this.rustDeskProfileTargetDisplay = display.display;',
-                        '    if (this.mateTvMode) { this.resetCanvasToDisplayDefault(); }\n    this.rustDeskProfileTargetDisplay = display.display;')
+                        '    if (this.mateTvMode) { this.mateTvStopJoystick(); this.resetCanvasToDisplayDefault(); }\n    this.rustDeskProfileTargetDisplay = display.display;')
     text = replace_once(text,
                         '    previousHeight: number, nextWidth: number, nextHeight: number): void {',
                         '    previousHeight: number, nextWidth: number, nextHeight: number): void {\n    if (this.mateTvMode && (previousWidth !== nextWidth || previousHeight !== nextHeight)) { this.canvasTransformGestureModified = false; return; }')

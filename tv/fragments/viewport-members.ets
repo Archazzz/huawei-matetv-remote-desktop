@@ -1,6 +1,8 @@
   @State private mateTvViewMode: LocalViewScaleMode = 'fill';
-  @State private mateTvViewX: number = 50;
-  @State private mateTvViewY: number = 50;
+  @State private mateTvJoystickX: number = 0;
+  @State private mateTvJoystickY: number = 0;
+  private mateTvJoystickTimer: number = -1;
+  private mateTvJoystickAt: number = 0;
   @State private mateTvViewCanX: boolean = false;
   @State private mateTvViewCanY: boolean = false;
 
@@ -12,74 +14,97 @@
       strictContentBounds: true }, viewport);
     this.mateTvViewCanX = edge.panX > 0.5;
     this.mateTvViewCanY = edge.panY > 0.5;
-    this.mateTvViewX = edge.panX > 0.5 ? Math.max(0, Math.min(100,
-      (1 - this.canvasTransform.panX / edge.panX) * 50)) : 50;
-    this.mateTvViewY = edge.panY > 0.5 ? Math.max(0, Math.min(100,
-      (1 - this.canvasTransform.panY / edge.panY) * 50)) : 50;
+
   }
 
   private mateTvSetViewFill(fill: boolean): void {
+    this.mateTvStopJoystick();
     this.mateTvCancelDrag();
     this.mateTvViewMode = fill ? 'fill' : 'fit';
     this.resetCanvasToDisplayDefault();
   }
 
   private mateTvSetViewNative(): void {
+    this.mateTvStopJoystick();
     this.mateTvCancelDrag();
     this.mateTvViewMode = '100';
     this.resetCanvasToDisplayDefault();
   }
 
-  private mateTvPanViewport(horizontal: boolean, value: number): void {
+  private mateTvMoveViewportPixels(x: number, y: number): void {
     if (this.mateTvTextOpen || this.mateTvDisplayOpen || !this.connected || this.cleanupStarted || this.rustDeskDisplaySwitchState.inputBlocked) { return; }
     const viewport: CanvasViewport = this.currentCanvasViewport();
-    const edge: CanvasTransform = clampCanvasTransform({ scale: this.canvasTransform.scale,
-      panX: 1e9, panY: 1e9, rotation: this.canvasTransform.rotation,
-      strictContentBounds: true }, viewport);
-    const fraction: number = 1 - 2 * Math.max(0, Math.min(100, value)) / 100;
     this.canvasTransform = clampCanvasTransform({ scale: this.canvasTransform.scale,
-      panX: horizontal ? edge.panX * fraction : this.canvasTransform.panX,
-      panY: horizontal ? this.canvasTransform.panY : edge.panY * fraction,
+      panX: this.canvasTransform.panX - x, panY: this.canvasTransform.panY - y,
       rotation: this.canvasTransform.rotation, strictContentBounds: true }, viewport);
     this.refreshCanvasTransformModified(viewport);
     this.applyCanvasTransform();
   }
 
+  private mateTvStartJoystick(event: GestureEvent): void {
+    this.mateTvStopJoystick();
+    this.mateTvCancelDrag();
+    this.mateTvJoystickAt = Date.now();
+    this.mateTvUpdateJoystick(event);
+    this.mateTvJoystickTimer = setInterval((): void => { this.mateTvTickJoystick(Date.now()); }, 20);
+  }
+
+  private mateTvUpdateJoystick(event: GestureEvent): void {
+    const x: number = this.mateTvViewCanX ? event.offsetX : 0;
+    const y: number = this.mateTvViewCanY ? event.offsetY : 0;
+    const factor: number = Math.max(1, Math.sqrt(x * x + y * y) / 30);
+    this.mateTvJoystickX = x / factor;
+    this.mateTvJoystickY = y / factor;
+  }
+
+  private mateTvTickJoystick(now: number): void {
+    if (this.mateTvJoystickTimer < 0) { return; }
+    if (!this.connected || this.cleanupStarted || this.mateTvTextOpen || this.mateTvDisplayOpen ||
+        this.rustDeskDisplaySwitchState.inputBlocked) { this.mateTvStopJoystick(); return; }
+    const seconds: number = Math.max(0, Math.min(0.05, (now - this.mateTvJoystickAt) / 1000));
+    this.mateTvJoystickAt = now;
+    const viewport: CanvasViewport = this.currentCanvasViewport();
+    // Full deflection travels about one visible screen per second. The dead
+    // zone absorbs remote sensor jitter; the shared clamp owns every edge.
+    const x: number = Math.abs(this.mateTvJoystickX) < 3 ? 0 : this.mateTvJoystickX / 30;
+    const y: number = Math.abs(this.mateTvJoystickY) < 3 ? 0 : this.mateTvJoystickY / 30;
+    if (x !== 0 || y !== 0) {
+      this.mateTvMoveViewportPixels(x * viewport.surfaceWidth * seconds,
+        y * viewport.surfaceHeight * seconds);
+    }
+  }
+
+  private mateTvStopJoystick(): void {
+    if (this.mateTvJoystickTimer >= 0) { clearInterval(this.mateTvJoystickTimer); }
+    this.mateTvJoystickTimer = -1;
+    this.mateTvJoystickX = 0;
+    this.mateTvJoystickY = 0;
+    this.mateTvJoystickAt = 0;
+  }
+
   @Builder
   private mateTvViewportDock() {
-    if (this.mateTvViewCanX) {
-      Column({ space: 0 }) {
-        Row() {
-          Text('左').fontSize(12).fontColor('#E6F1F4')
-          Blank()
-          Text('拖动圆点移动画面').fontSize(12).fontColor('#B1C2CA')
-          Blank()
-          Text('右').fontSize(12).fontColor('#E6F1F4')
-        }.width('100%')
-        Slider({ value: this.mateTvViewX, min: 0, max: 100, step: 0.1 })
-          .width('100%').height(38).blockSize({ width: 24, height: 24 })
-          .trackThickness(4).selectedColor('#70E0C2').blockColor('#D8FFF4')
-          .onChange((value: number, mode: SliderChangeMode): void => {
-            if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Click) { this.mateTvCancelDrag(); }
-            this.mateTvPanViewport(true, value);
-          })
-      }.width(320).padding({ left: 16, right: 16, top: 7, bottom: 1 })
-        .backgroundColor('#D9192A34').borderRadius(28).align(Alignment.Bottom).margin({ bottom: 16 })
-        .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(150)
-    }
-    if (this.mateTvViewCanY) {
-      Column({ space: 0 }) {
-        Text('顶').fontSize(12).fontColor('#E6F1F4')
-        Slider({ value: this.mateTvViewY, min: 0, max: 100, step: 0.1, direction: Axis.Vertical })
-          .height(200).width(40).blockSize({ width: 24, height: 24 })
-          .trackThickness(4).selectedColor('#70E0C2').blockColor('#D8FFF4')
-          .onChange((value: number, mode: SliderChangeMode): void => {
-            if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Click) { this.mateTvCancelDrag(); }
-            this.mateTvPanViewport(false, value);
-          })
-        Text('底').fontSize(12).fontColor('#E6F1F4')
-      }.width(48).padding({ top: 12, bottom: 12 })
-        .backgroundColor('#D9192A34').borderRadius(26).align(Alignment.End).margin({ right: 16 })
+    if (this.mateTvViewCanX || this.mateTvViewCanY) {
+      Stack() {
+        Circle().width(112).height(112).fill('#C2192A34')
+          .stroke('#507786').strokeWidth(1).hitTestBehavior(HitTestMode.None)
+        Text('‹').fontSize(26).fontColor(this.mateTvViewCanX ? '#D2E5E9' : '#48606A')
+          .position({ x: 8, y: 38 }).hitTestBehavior(HitTestMode.None)
+        Text('›').fontSize(26).fontColor(this.mateTvViewCanX ? '#D2E5E9' : '#48606A')
+          .position({ x: 95, y: 38 }).hitTestBehavior(HitTestMode.None)
+        Text('⌃').fontSize(23).fontColor(this.mateTvViewCanY ? '#D2E5E9' : '#48606A')
+          .position({ x: 48, y: 4 }).hitTestBehavior(HitTestMode.None)
+        Text('⌄').fontSize(23).fontColor(this.mateTvViewCanY ? '#D2E5E9' : '#48606A')
+          .position({ x: 48, y: 82 }).hitTestBehavior(HitTestMode.None)
+        Circle().width(44).height(44).fill('#A8E9D7').stroke('#EBFFF8').strokeWidth(2)
+          .shadow({ radius: 5, color: '#70000000', offsetY: 2 })
+          .translate({ x: this.mateTvJoystickX, y: this.mateTvJoystickY })
+          .gesture(PanGesture({ fingers: 1, distance: 0 })
+            .onActionStart((event: GestureEvent): void => { this.mateTvStartJoystick(event); })
+            .onActionUpdate((event: GestureEvent): void => { this.mateTvUpdateJoystick(event); })
+            .onActionEnd((): void => { this.mateTvStopJoystick(); })
+            .onActionCancel((): void => { this.mateTvStopJoystick(); }))
+      }.width(112).height(112).align(Alignment.BottomEnd).margin({ right: 24, bottom: 24 })
         .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(150)
     }
   }

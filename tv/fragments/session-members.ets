@@ -172,6 +172,7 @@
   }
 
   private mateTvOpenText(): void {
+    this.mateTvStopJoystick();
     if (!this.canForwardInput('matetv-open-text')) { return; }
     this.mateTvCancelDrag();
     this.dismissKeyboard();

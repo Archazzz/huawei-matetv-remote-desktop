@@ -97,7 +97,7 @@ test('A second finger cannot release the primary contact', () => {
 });
 test('Leaving waits for native completion and repeated back cannot start another teardown', () => {
   const { page, context } = create(); let teardowns = 0;
-  page.mateTvCloseText = () => {}; page.mateTvCloseDisplay = () => {};
+  page.mateTvStopJoystick = () => {}; page.mateTvCloseText = () => {}; page.mateTvCloseDisplay = () => {};
   page.disconnectAndCleanup = () => { teardowns++; page.cleanupStarted = true; };
   page.mateTvLeaveSession(); page.mateTvLeaveSession();
   assert.equal(teardowns, 1); assert.equal(context.returns, 0);
@@ -123,7 +123,7 @@ function createViewport(width, height, surfaceWidth = 1920, surfaceHeight = 1080
     session.indexOf('  private refreshCanvasTransformModified('));
   const rebaseMethod = session.slice(session.indexOf('  private rebaseManualCanvasForSourceGeometry('),
     session.indexOf('  /** Disabling local canvas zoom'));
-  const context = vm.createContext({});
+  const context = vm.createContext({ setInterval() { return 1; }, clearInterval() {} });
   vm.runInContext(stripTypeScriptTypes(canvasPolicy.replace(/export /g, '') + '\nclass Viewport {\n' +
     viewportFragment.replace(/@State /g, '') + defaultMethod + rebaseMethod +
     '\n}\nglobalThis.Viewport = Viewport;'), context);
@@ -149,20 +149,19 @@ test('Portrait fills width; vertical slider endpoints expose top and bottom with
   const scale = Math.min(v.surfaceWidth / v.sourceWidth, v.surfaceHeight / v.sourceHeight) * page.canvasTransform.scale;
   close(v.sourceWidth * scale, v.surfaceWidth);
   assert.equal(page.mateTvViewCanX, false); assert.equal(page.mateTvViewCanY, true);
-  page.mateTvPanViewport(false, 0);
+  page.mateTvMoveViewportPixels(0, -1e9);
   close((v.surfaceHeight - v.sourceHeight * scale) / 2 + page.canvasTransform.panY, 0);
-  page.mateTvPanViewport(false, 100);
+  page.mateTvMoveViewportPixels(0, 1e9);
   close((v.surfaceHeight + v.sourceHeight * scale) / 2 + page.canvasTransform.panY, v.surfaceHeight);
-  close(page.mateTvViewY, 100);
 });
 test('32:9 fills height; horizontal slider endpoints reveal both source edges', () => {
   const { page, viewport: v } = createViewport(5120, 1440);
   const scale = Math.min(v.surfaceWidth / v.sourceWidth, v.surfaceHeight / v.sourceHeight) * page.canvasTransform.scale;
   close(v.sourceHeight * scale, v.surfaceHeight);
   assert.equal(page.mateTvViewCanX, true); assert.equal(page.mateTvViewCanY, false);
-  page.mateTvPanViewport(true, -10);
+  page.mateTvMoveViewportPixels(-1e9, 0);
   close((v.surfaceWidth - v.sourceWidth * scale) / 2 + page.canvasTransform.panX, 0);
-  page.mateTvPanViewport(true, 110);
+  page.mateTvMoveViewportPixels(1e9, 0);
   close((v.surfaceWidth + v.sourceWidth * scale) / 2 + page.canvasTransform.panX, v.surfaceWidth);
 });
 test('16:9 has no overflow; fit and text panel preserve complete portrait image', () => {
@@ -174,19 +173,19 @@ test('16:9 has no overflow; fit and text panel preserve complete portrait image'
   page.mateTvSetViewFill(true); page.mateTvTextOpen = true; page.resetCanvasToDisplayDefault();
   close(page.canvasTransform.scale, 1); assert.equal(page.mateTvViewCanY, false);
   const before = JSON.stringify(page.canvasTransform);
-  page.mateTvPanViewport(false, 100);
+  page.mateTvMoveViewportPixels(0, 1e9);
   assert.equal(JSON.stringify(page.canvasTransform), before);
 });
 test('Changing display geometry resets the pan axis and center', () => {
   const { page, viewport } = createViewport(5120, 1440);
-  page.mateTvPanViewport(true, 100);
+  page.mateTvMoveViewportPixels(1e9, 0);
   page.canvasTransformGestureModified = true;
   page.rebaseManualCanvasForSourceGeometry(5120, 1440, 1080, 1920);
   assert.equal(page.canvasTransformGestureModified, false);
   viewport.sourceWidth = 1080; viewport.sourceHeight = 1920;
   page.resetCanvasToDisplayDefault();
   assert.equal(page.mateTvViewCanX, false); assert.equal(page.mateTvViewCanY, true);
-  close(page.mateTvViewX, 50); close(page.mateTvViewY, 50);
+  close(page.canvasTransform.panX, 0); close(page.canvasTransform.panY, 0);
 });
 
 test('Independent semantic activations are not suppressed by a consumed raw duplicate', () => {
@@ -208,6 +207,20 @@ test('Native pixels avoid enlargement and retain a horizontal dock for an ultraw
   const fit = Math.min(v.surfaceWidth / v.sourceWidth, v.surfaceHeight / v.sourceHeight);
   close(page.canvasTransform.scale * fit, 1);
   assert.equal(page.mateTvViewCanX, true); assert.equal(page.mateTvViewCanY, false);
-  page.mateTvPanViewport(true, 100);
+  page.mateTvMoveViewportPixels(1e9, 0);
   close(page.canvasTransform.panX, -640);
+});
+
+test('Joystick stays bounded, pans continuously and returns to center without moving desktop objects', () => {
+  const { page } = createViewport(5120, 1440);
+  page.mateTvStartJoystick({ offsetX: 300, offsetY: 0 });
+  close(page.mateTvJoystickX, 30);
+  page.mateTvJoystickAt = 1000; page.mateTvTickJoystick(1020);
+  assert.ok(page.canvasTransform.panX < 0);
+  const position = page.canvasTransform.panX;
+  page.mateTvStopJoystick(); page.mateTvTickJoystick(1040);
+  close(page.canvasTransform.panX, position); close(page.mateTvJoystickX, 0);
+  page.mateTvStartJoystick({ offsetX: -20, offsetY: 0 }); page.mateTvTextOpen = true;
+  page.mateTvTickJoystick(1060);
+  assert.equal(page.mateTvJoystickTimer, -1); close(page.canvasTransform.panX, position);
 });
