@@ -168,19 +168,29 @@
 
   @Builder
   private mateTvToolbar() {
-    Row({ space: 8 }) {
-      this.mateTvButton('切换电脑', (): void => { this.goBack(); })
-      this.mateTvButton(this.mateTvRightClick ? '点选位置右击' : '右键', (): void => {
-        this.mateTvRightClick = !this.mateTvRightClick;
-      })
-      this.mateTvButton(this.mateTvDrag ? (this.mateTvDragHeld ? '拖动：点目标放下' : '拖动：点取物件') : '拖动：关', (): void => {
-        this.mateTvCancelDrag(); this.mateTvDrag = !this.mateTvDrag;
-      })
-      this.mateTvButton('文字 / 听写', (): void => { this.mateTvOpenText(); })
-      this.mateTvButton('键盘', (): void => {
-        if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.openKeyboard(); }
-      })
-      this.mateTvButton('Esc', (): void => { this.sendRemoteKeyTap(111, 'Esc'); })
+    Column({ space: 8 }) {
+      Row({ space: 8 }) {
+        this.mateTvButton('切换电脑', (): void => { this.goBack(); })
+        this.mateTvButton('显示器 / 画质', (): void => { this.mateTvOpenDisplay(); })
+        this.mateTvButton(this.mateTvRightClick ? '点选位置右击' : '右键', (): void => {
+          this.mateTvRightClick = !this.mateTvRightClick;
+        })
+        this.mateTvButton(this.mateTvDrag ? (this.mateTvDragHeld ? '拖动：点目标放下' : '拖动：点取物件') : '拖动：关', (): void => {
+          this.mateTvCancelDrag(); this.mateTvDrag = !this.mateTvDrag;
+        })
+        this.mateTvButton('文字 / 听写', (): void => { this.mateTvOpenText(); })
+        this.mateTvButton('键盘', (): void => {
+          if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.openKeyboard(); }
+        })
+        this.mateTvButton('Esc', (): void => { this.sendRemoteKeyTap(111, 'Esc'); })
+      }
+      if (this.rustDeskRemoteInputPermissionKnown && !this.rustDeskRemoteInputAllowed) {
+        Text('只能查看：电脑端未允许键盘鼠标控制，请检查 RustDesk 当前连接的权限。')
+          .fontSize(20).fontColor('#FFD4B5')
+      } else if (this.mateTvDrag) {
+        Text('点一下抓住物件，移动指针，再点一下放下；触控平板也可以按住滑动。')
+          .fontSize(18).fontColor('#B1C2CA')
+      }
     }.padding(12).backgroundColor('#ED101C25').borderRadius(16)
       .position({ x: 24, y: 16 }).zIndex(100)
   }

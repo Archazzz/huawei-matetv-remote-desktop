@@ -58,20 +58,25 @@ def patch_session(text: str) -> str:
                         "import { pasteboard, BusinessError, deviceInfo } from '@kit.BasicServicesKit';")
     members = (ROOT / 'tv/fragments/session-members.ets').read_text()
     members += (ROOT / 'tv/fragments/saved-login-members.ets').read_text()
+    members += (ROOT / 'tv/fragments/display-members.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
-                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvTextOpen && source !== \'matetv-submit-text\') { return false; }')
+                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { return false; }')
     text = replace_once(text,
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            this.openRustDeskAuthSheet();",
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            if (!this.mateTvTrySavedPassword()) { this.openRustDeskAuthSheet(); }")
     text = replace_once(text, '  private handleXComponentKey = (event: KeyEvent): boolean => {',
                         '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen) { return false; }')
     text = replace_once(text, '  aboutToDisappear(): void {',
-                        '  aboutToDisappear(): void {\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();')
+                        '  aboutToDisappear(): void {\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();\n    this.mateTvCloseDisplay();')
     text = replace_once(text, '  private handleXComponentMouse = (event: MouseEvent): void => {',
                         '  private handleXComponentMouse = (event: MouseEvent): void => {\n    if (this.mateTvObserveMouse(event)) { return; }')
     text = replace_once(text, "message: '远端未开放输入控制，请在被控手机开启 RustDesk 输入控制/无障碍权限',",
                         "message: '电脑端尚未允许控制，请检查 RustDesk 当前连接的键盘鼠标权限及系统辅助功能授权',")
+    text = replace_once(text, '      if (this.connected && this.shouldShowRemoteSessionTopBar()) {',
+                        '      if (!this.mateTvMode && this.connected && this.shouldShowRemoteSessionTopBar()) {')
+    text = replace_once(text, "            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');",
+                        "            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
     # TV remote uses normalized click/pan. Ignore synthesized touch to avoid a
     # second click; actual mouse and keyboard continue through upstream handlers.
     if text.count('.onTouch(this.handleConfiguredTouchInput)') != 2:
@@ -90,6 +95,11 @@ def patch_session(text: str) -> str:
     anchor = '      // Keep the file-transfer sheet on its own host.'
     addition = '''      if (this.mateTvMode && this.connected) {
         this.mateTvToolbar()
+      }
+      if (this.mateTvMode && this.mateTvDisplayOpen) {
+        Stack() { this.mateTvDisplayPanel() }
+          .width('100%').height('100%').backgroundColor('#CC101C25')
+          .hitTestBehavior(HitTestMode.Block).zIndex(200)
       }
       if (this.mateTvMode && this.mateTvTextOpen) {
         Stack() { this.mateTvTextPanel() }
