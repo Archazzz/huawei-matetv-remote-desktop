@@ -128,8 +128,10 @@
       if (event.type === TouchType.Up) {
         if (this.mateTvTouchGesture === 'pending' && this.physicalMouseClickPending) {
           this.discardPendingMouseMove();
-          this.sendMouseNow(this.physicalMousePressX, this.physicalMousePressY, this.mateTvTouchButton, true);
-          this.sendMouseNow(this.physicalMousePressX, this.physicalMousePressY, this.mateTvTouchButton, false);
+          // Classify only at release: moving after a dwell remains a left drag.
+          const button: number = Date.now() - this.mateTvTouchStartedAt >= 600 ? 2 : this.mateTvTouchButton;
+          this.sendMouseNow(this.physicalMousePressX, this.physicalMousePressY, button, true);
+          this.sendMouseNow(this.physicalMousePressX, this.physicalMousePressY, button, false);
           hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch completed click');
         } else if (this.mateTvTouchGesture === 'drag' && this.physicalMouseRemoteDownSent) {
           this.flushMouseMove();

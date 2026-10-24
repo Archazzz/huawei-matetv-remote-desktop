@@ -325,3 +325,22 @@ test('Physical mouse and real wheel input remain owned by upstream handlers', ()
   page.mateTvTouch({type:0,sourceTool:7,source:2,changedTouches:[{x:100,y:100,id:1}]});
   assert.deepEqual(events, []); assert.equal(page.mateTvTouchId, -1);
 });
+
+for (const layout of ['macos', 'windows']) {
+  test(`${layout}: stationary long press releases one right click, never a left click`, () => {
+    const { page, events, touch, advance } = create(layout);
+    touch(0); advance(650); touch(2, 102, 101);
+    assert.deepEqual(events, []);
+    touch(1, 102, 101); page.mateTvClick(102, 101);
+    assert.deepEqual(events, [['down', 100, 100, 2], ['up', 100, 100, 2]]);
+  });
+  test(`${layout}: long hold followed by movement only drags, cancel never right clicks`, () => {
+    const { events, touch, advance } = create(layout);
+    touch(0); advance(700); touch(2, 120, 110); touch(1, 140, 130);
+    assert.deepEqual(events[0], ['down', 100, 100, 0]);
+    assert.deepEqual(events.at(-1), ['up', 140, 130, 0]);
+    assert.equal(events.some(e => e[3] === 2), false);
+    events.length = 0; touch(0); advance(700); touch(3); touch(1);
+    assert.deepEqual(events, []);
+  });
+}
