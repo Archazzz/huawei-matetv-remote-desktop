@@ -4,6 +4,7 @@ export interface TvComputerPreset {
   label: string;
   address: string;
   port: number;
+  credentialGroup?: string;
 }
 
 export const TV_COMPUTER_PRESETS: TvComputerPreset[] = [];

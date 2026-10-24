@@ -25,8 +25,12 @@ def computer_presets(path: Path) -> str:
     ids = set()
     endpoints = set()
     for item in items:
-        if not isinstance(item, dict) or set(item) != {'id', 'label', 'address', 'port'}:
-            raise ValueError('each computer requires only id, label, address and port; credentials are forbidden')
+        required = {'id', 'label', 'address', 'port'}
+        if not isinstance(item, dict) or not required <= set(item) or set(item) - required - {'credentialGroup'}:
+            raise ValueError('each computer requires id, label, address and port; only credentialGroup is optional; credentials are forbidden')
+        group = item.get('credentialGroup', '')
+        if not isinstance(group, str) or (group and not re.fullmatch(r'[a-z0-9_-]{1,64}', group)):
+            raise ValueError('credentialGroup must be an explicit lowercase group identifier')
         if not isinstance(item['id'], str) or not re.fullmatch(r'[a-z0-9_-]{1,64}', item['id']):
             raise ValueError('computer id must be a stable lowercase identifier')
         if not isinstance(item['label'], str) or not 1 <= len(item['label'].strip()) <= 60:
@@ -42,7 +46,7 @@ def computer_presets(path: Path) -> str:
         ids.add(item['id'])
         endpoints.add(endpoint)
     return ('// PRIVATE GENERATED BUILD CONFIGURATION. Do not publish this file or HAP.\n'
-            'export interface TvComputerPreset { id: string; label: string; address: string; port: number; }\n'
+            'export interface TvComputerPreset { id: string; label: string; address: string; port: number; credentialGroup?: string; }\n'
             'export const TV_COMPUTER_PRESETS: TvComputerPreset[] = ' +
             json.dumps(items, ensure_ascii=True, indent=2) + ';\n')
 
@@ -54,6 +58,7 @@ def replace_once(text: str, before: str, after: str) -> str:
 
 
 def patch_session(text: str) -> str:
+    text = "import { TV_COMPUTER_PRESETS, TvComputerPreset } from '../services/TvProvisionedComputers';\n" + text
     text = replace_once(text, "import { pasteboard, BusinessError } from '@kit.BasicServicesKit';",
                         "import { pasteboard, BusinessError, deviceInfo } from '@kit.BasicServicesKit';")
     members = (ROOT / 'tv/fragments/session-members.ets').read_text()
