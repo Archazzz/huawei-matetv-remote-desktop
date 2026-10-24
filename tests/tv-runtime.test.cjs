@@ -463,3 +463,60 @@ test('Video watchdog recovers continuous ingress without presentation, stays qui
   for(let i=0;i<12;i++) tick();
   assert.equal(refresh,3); // stale owner's diagnostics cannot recover another session
 });
+
+function createLifecycleBarrier() {
+  const context = vm.createContext({ hilog: { info() {}, warn() {} }, RD_DOMAIN: 0, RD_TAG: 'test' });
+  const detach = session.slice(session.indexOf('  private async detachForBackground()'),
+    session.indexOf('  private async performBackgroundDetach()'));
+  vm.runInContext(stripTypeScriptTypes('class Lifecycle {\n' + lifecycle.replace(/@State /g, '') +
+    detach + '\n}\nglobalThis.Lifecycle = Lifecycle;'), context);
+  const page = new context.Lifecycle();
+  const events = [];
+  let finish, fail;
+  const deferred = new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+  Object.assign(page, { sessionId: 1, connectAttemptId: 1, connected: true, bgRestorePending: false,
+    backgroundDetachPromise: null, background: true,
+    currentAbilityBackgroundState() { return this.background; },
+    async performBackgroundDetach() {
+      this.cleanupStarted = true;
+      await deferred;
+      events.push('detach'); this.bgRestorePending = true;
+    },
+    performForegroundRestore() {
+      assert.equal(this.backgroundDetachPromise, null);
+      events.push('restore'); this.cleanupStarted = false; this.bgRestorePending = false;
+    } });
+  return { page, events, finish, fail };
+}
+
+test('Fast foreground return waits for the actual detach before rebinding and deduplicates callbacks', async () => {
+  const {page, events, finish} = createLifecycleBarrier();
+  const pending = page.detachForBackground();
+  page.background = false;
+  // Foreground can arrive even before background init sets bgRestorePending.
+  page.restoreFromBackground(); page.restoreFromBackground();
+  assert.equal(page.cleanupStarted, true); assert.deepEqual(events, []);
+  finish(); await pending; await Promise.resolve();
+  assert.deepEqual(events, ['detach', 'restore']);
+  assert.equal(page.bgRestorePending, false);
+});
+
+test('A backgrounded, replaced, leaving or handed-off session cannot be restored by an old detach', async () => {
+  for (const change of [p => p.background = true, p => p.sessionId++, p => p.connectAttemptId++,
+    p => p.mateTvLeaving = true, p => p.connected = false, p => p.pcWindowHandoffComplete = true]) {
+    const {page, events, finish} = createLifecycleBarrier();
+    const pending = page.detachForBackground();
+    page.background = false; page.restoreFromBackground(); change(page);
+    finish(); await pending; await Promise.resolve();
+    assert.deepEqual(events, ['detach']);
+  }
+});
+
+test('Rejected detach still permits the normal PIP terminal recovery without an unhandled rejection', async () => {
+  const {page, events, fail} = createLifecycleBarrier();
+  const pending = page.detachForBackground();
+  page.bgRestorePending = true; page.background = false; page.restoreFromBackground();
+  fail(new Error('PIP terminal timeout'));
+  await assert.rejects(pending); await Promise.resolve();
+  assert.deepEqual(events, ['restore']);
+});

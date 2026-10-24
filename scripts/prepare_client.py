@@ -58,6 +58,20 @@ def replace_once(text: str, before: str, after: str) -> str:
 
 
 def patch_session(text: str) -> str:
+    text = replace_once(text, '  private restoreFromBackground(): void {',
+                        '  private performForegroundRestore(): void {')
+    text = replace_once(text, '    const action: RemoteDesktopBackgroundAction = decideRemoteDesktopBackgroundAction(',
+                        '''    if (!isBackground && this.backgroundDetachPromise !== null) {
+      this.restoreFromBackground();
+      return;
+    }
+    const action: RemoteDesktopBackgroundAction = decideRemoteDesktopBackgroundAction(''')
+    text = replace_once(text, '    const continueRestore = (): void => {',
+                        '''    const continueRestore = (): void => {
+      if (this.currentAbilityBackgroundState()) {
+        this.restoreInProgress = false;
+        return;
+      }''')
     text = "import { TV_COMPUTER_PRESETS, TvComputerPreset } from '../services/TvProvisionedComputers';\n" + text
     text = replace_once(text, "import { pasteboard, BusinessError } from '@kit.BasicServicesKit';",
                         "import { pasteboard, BusinessError, deviceInfo } from '@kit.BasicServicesKit';")
