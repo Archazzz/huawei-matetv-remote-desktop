@@ -14,3 +14,15 @@ jobs:
       - run: python -m bridge.server --config bridge/config.example.json --check
       - run: python -m compileall -q bridge scripts
       - run: bash -n scripts/build_hap.sh
+  tv-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python scripts/prepare_client.py
+      - run: node --test tests/tv-runtime.test.cjs
