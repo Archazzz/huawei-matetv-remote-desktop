@@ -16,11 +16,22 @@ struct TvInputLab {
   private audioProbe: TvAudioProbe = new TvAudioProbe();
   private audioGeneration: number = 0;
   private keyDiagnostics: string[] = [];
+  private textEntryFocused: boolean = false;
+  private lastTouchDiagnosticAt: number = 0;
 
-  aboutToAppear(): void { this.saveKeyDiagnostic('test-page-open'); }
+  aboutToAppear(): void {
+    try {
+      const prefs = preferences.getPreferencesSync(getContext(this), { name: 'ScreenLinkInputDiagnostics' });
+      const saved = JSON.parse(prefs.getSync('remoteKeys', '[]') as string) as string[];
+      if (Array.isArray(saved)) {
+        this.keyDiagnostics = saved.filter((value: string): boolean => typeof value === 'string').slice(-128);
+      }
+    } catch (_error) { this.keyDiagnostics = []; }
+    this.saveKeyDiagnostic('test-page-open');
+  }
 
   private saveKeyDiagnostic(value: string): void {
-    this.keyDiagnostics = [...this.keyDiagnostics, Date.now().toString() + ' ' + value].slice(-32);
+    this.keyDiagnostics = [...this.keyDiagnostics, Date.now().toString() + ' ' + value].slice(-128);
     try {
       const prefs = preferences.getPreferencesSync(getContext(this), { name: 'ScreenLinkInputDiagnostics' });
       prefs.putSync('remoteKeys', JSON.stringify(this.keyDiagnostics));
@@ -34,7 +45,7 @@ struct TvInputLab {
     this.audioTesting = false;
   }
 
-  onPageHide(): void { this.cancelAudioTest(); }
+  onPageHide(): void { this.saveKeyDiagnostic('test-page-hide'); this.cancelAudioTest(); }
   aboutToDisappear(): void { this.cancelAudioTest(); }
 
   private async testAudio(): Promise<void> {
@@ -51,15 +62,15 @@ struct TvInputLab {
   private record(value: string): void {
     this.count++;
     this.events = [this.count.toString() + '  ' + value, ...this.events].slice(0, 8);
+    this.saveKeyDiagnostic(value);
   }
 
   private recordKey(stage: string, event: KeyEvent): void {
-    // Only remote-control candidates; never log text or ordinary keyboard input.
-    if ([2012, 2013, 2014, 2015, 2067, 2722, 9].indexOf(event.keyCode) < 0) { return; }
+    // Observe unknown remote key codes too, but never record the text-entry path.
+    if (this.textEntryFocused) { return; }
     const value: string = stage + ' key=' + event.keyCode.toString() +
       ' type=' + event.type.toString() + ' device=' + event.deviceId.toString();
     this.record(value);
-    this.saveKeyDiagnostic(value);
     hilog.info(0x14, 'ScreenLinkInputLab', '%{public}s', value);
   }
 
@@ -84,7 +95,7 @@ struct TvInputLab {
           Text(this.testFocused ? '已聚焦 · 可测试遥控器按键' : '点击此区域，测试遥控器按键').fontSize(24).fontColor('#F4F8FA')
           Text('事件仅显示在本机，不会发送到电脑。').fontSize(18).fontColor('#B1C2CA')
         }.layoutWeight(1).height(240).backgroundColor('#243640').borderRadius(16)
-          .id('ScreenLinkInputLabTarget').focusable(true).defaultFocus(true)
+          .id('ScreenLinkInputLabTarget').focusable(true).focusOnTouch(true).defaultFocus(true)
           .onFocus((): void => { this.testFocused = true; this.saveKeyDiagnostic('target-focus'); })
           .onBlur((): void => { this.testFocused = false; this.saveKeyDiagnostic('target-blur'); })
           .onClick((event: ClickEvent): void => {
@@ -103,6 +114,14 @@ struct TvInputLab {
               this.record('mouse button=' + event.button.toString() + ' action=' + event.action.toString());
             }
           })
+          .onTouch((event: TouchEvent): void => {
+            const now: number = Date.now();
+            if (event.type === TouchType.Move && now - this.lastTouchDiagnosticAt < 200) { return; }
+            this.lastTouchDiagnosticAt = now;
+            this.record('touch type=' + event.type.toString() + ' source=' + event.source.toString() +
+              ' tool=' + event.sourceTool.toString() + ' device=' + (event.deviceId ?? -1).toString() +
+              ' points=' + event.touches.length.toString());
+          })
           .parallelGesture(PanGesture().onActionEnd((event: GestureEvent): void => {
             this.record('pan x=' + Math.round(event.offsetX) + ' y=' + Math.round(event.offsetY));
           }))
@@ -117,9 +136,15 @@ struct TvInputLab {
         .fontSize(20).fontColor('#B1C2CA')
       TextArea({ text: this.text, placeholder: '测试中文、English、标点和换行' })
         .height(130).fontSize(24).maxLength(2000)
+        .onFocus((): void => { this.textEntryFocused = true; })
+        .onBlur((): void => { this.textEntryFocused = false; })
         .onChange((value: string): void => { this.text = value; })
       Text('已输入 ' + this.text.length.toString() + ' 个字符').fontSize(18).fontColor('#B1C2CA')
     }.padding(40).width('100%').height('100%').backgroundColor('#101C25')
       .alignItems(HorizontalAlign.Start)
+      .onKeyEvent((event: KeyEvent): boolean => {
+        this.recordKey('page-key', event);
+        return false;
+      })
   }
 }
