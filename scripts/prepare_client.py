@@ -51,6 +51,60 @@ def computer_presets(path: Path) -> str:
             json.dumps(items, ensure_ascii=True, indent=2) + ';\n')
 
 
+def notification_configuration(path: Path, dest: Path) -> None:
+    """Embed an explicitly supplied private read-only pairing; never include it in public source."""
+    from urllib.parse import urlsplit
+    import base64
+    config = json.loads(path.read_text())
+    expected = {'version', 'endpoint', 'token', 'caResource', 'publicKeyHash'}
+    if not isinstance(config, dict) or set(config) != expected or config['version'] != 1:
+        raise ValueError('invalid notification configuration fields')
+    endpoint = config['endpoint']
+    if not isinstance(endpoint, str) or not re.fullmatch(r'https://[A-Za-z0-9.-]+:[0-9]{1,5}', endpoint):
+        raise ValueError('notification endpoint must be an explicit HTTPS origin with port')
+    parsed = urlsplit(endpoint)
+    if parsed.port is None or not 1 <= parsed.port <= 65535:
+        raise ValueError('invalid notification endpoint port')
+    if not isinstance(config['token'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,256}', config['token']):
+        raise ValueError('invalid notification read-only token')
+    if config['caResource'] != 'screenlink-notifications-ca.pem':
+        raise ValueError('invalid notification CA resource name')
+    try:
+        pin = base64.b64decode(config['publicKeyHash'], validate=True)
+    except (TypeError, ValueError):
+        raise ValueError('invalid notification SPKI pin') from None
+    if len(pin) != 32:
+        raise ValueError('notification SPKI pin must be SHA-256')
+    ca = path.parent / config['caResource']
+    pem = ca.read_text()
+    if not pem.startswith('-----BEGIN CERTIFICATE-----') or len(pem) > 8000:
+        raise ValueError('notification CA must be a bounded PEM certificate')
+    raw = dest / 'entry/src/main/resources/rawfile'
+    raw.mkdir(parents=True, exist_ok=True)
+    (raw / 'screenlink-notifications.json').write_text(json.dumps(config) + '\n')
+    (raw / config['caResource']).write_text(pem)
+
+
+def patch_notification_ability(dest: Path) -> None:
+    ability = dest / 'entry/src/main/ets/entryability/EntryAbility.ets'
+    text = ability.read_text()
+    text = "import { TvNotificationService } from '../services/notifications/TvNotificationService';\n" + text
+    text = replace_once(text, '  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {',
+        '  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {\n'
+        '    TvNotificationService.getInstance().attach(this.context);\n'
+        '    TvNotificationService.getInstance().receiveWant(want);')
+    text = replace_once(text, '  onNewWant(want: Want, launch: AbilityConstant.LaunchParam): void {',
+        '  onNewWant(want: Want, launch: AbilityConstant.LaunchParam): void {\n'
+        '    TvNotificationService.getInstance().receiveWant(want);')
+    text = replace_once(text, "    hilog.info(DOMAIN, TAG, 'Ability onForeground');",
+        "    TvNotificationService.getInstance().setForeground(true);\n"
+        "    hilog.info(DOMAIN, TAG, 'Ability onForeground');")
+    for name in ['onWillBackground', 'onBackground']:
+        text = replace_once(text, '  ' + name + '(): void {',
+            '  ' + name + '(): void {\n    TvNotificationService.getInstance().setForeground(false);')
+    ability.write_text(text)
+
+
 def replace_once(text: str, before: str, after: str) -> str:
     if text.count(before) != 1:
         raise ValueError(f'upstream patch anchor changed: {before[:100]!r}')
@@ -314,6 +368,7 @@ def patch_session(text: str) -> str:
         this.restoreInProgress = false;
         return;
       }''')
+    text = "import { TvNotificationService } from '../services/notifications/TvNotificationService';\n" + text
     text = "import { TV_COMPUTER_PRESETS, TvComputerPreset } from '../services/TvProvisionedComputers';\n" + text
     text = replace_once(text, "import { pasteboard, BusinessError } from '@kit.BasicServicesKit';",
                         "import { pasteboard, BusinessError, deviceInfo } from '@kit.BasicServicesKit';")
@@ -321,6 +376,7 @@ def patch_session(text: str) -> str:
     members += (ROOT / 'tv/fragments/saved-login-members.ets').read_text()
     members += (ROOT / 'tv/fragments/display-members.ets').read_text()
     members += (ROOT / 'tv/fragments/lifecycle-members.ets').read_text()
+    members += (ROOT / 'tv/fragments/notification-members.ets').read_text()
     members += (ROOT / 'tv/fragments/viewport-members.ets').read_text()
     members += (ROOT / 'tv/fragments/corner-controls.ets').read_text()
     members += (ROOT / 'tv/fragments/video-watchdog.ets').read_text()
@@ -419,6 +475,7 @@ def main():
     parser.add_argument('--archive', type=Path, help='use a previously downloaded pinned GitHub tarball')
     parser.add_argument('--output', type=Path, default=ROOT / '.work/client')
     parser.add_argument('--computers', type=Path, help='private JSON computer list to import once on the TV (no passwords)')
+    parser.add_argument('--notifications', type=Path, help='private TLS/read-only notification pairing JSON')
     args = parser.parse_args()
     presets = computer_presets(args.computers) if args.computers else None
     dest = args.output.resolve()
@@ -449,11 +506,19 @@ def main():
     shutil.copytree(ROOT / 'tv/overlay', dest, dirs_exist_ok=True)
     if presets is not None:
         (dest / 'entry/src/main/ets/services/TvProvisionedComputers.ets').write_text(presets)
+    notification_raw = dest / 'entry/src/main/resources/rawfile'
+    for name in ['screenlink-notifications.json', 'screenlink-notifications-ca.pem']:
+        (notification_raw / name).unlink(missing_ok=True)
+    if args.notifications is not None:
+        notification_configuration(args.notifications, dest)
+    patch_notification_ability(dest)
     module = dest / 'entry/src/main/module.json5'
     text = module.read_text()
     text, count = re.subn(r'"deviceTypes"\s*:\s*\[[^\]]+\]', '"deviceTypes": ["tv"]', text, count=1)
     if count != 1:
         raise ValueError('deviceTypes declaration missing')
+    # This fork must not impersonate the upstream AGC/Push application.
+    text = re.sub(r'\s*"metadata"\s*:\s*\[\s*\{\s*"name"\s*:\s*"client_id",\s*"value"\s*:\s*"[^"]*"\s*\}\s*\],?', '', text)
     module.write_text(text)
     app_path = dest / 'AppScope/app.json5'
     app = json.loads(app_path.read_text())
@@ -464,7 +529,7 @@ def main():
     app_path.write_text(json.dumps(app, ensure_ascii=False, indent=2) + '\n')
     pages_path = dest / 'entry/src/main/resources/base/profile/main_pages.json'
     pages = json.loads(pages_path.read_text())
-    pages['src'] = ['pages/TvHome', 'pages/TvInputLab'] + [p for p in pages['src'] if p not in ['pages/TvHome', 'pages/TvInputLab']]
+    pages['src'] = ['pages/TvHome', 'pages/TvInputLab', 'pages/TvNotifications'] + [p for p in pages['src'] if p not in ['pages/TvHome', 'pages/TvInputLab', 'pages/TvNotifications']]
     pages_path.write_text(json.dumps(pages, indent=2) + '\n')
     startup = dest / 'entry/src/main/ets/services/AppStartupPolicy.ets'
     startup.write_text(startup.read_text().replace("'pages/GuidePage'", "'pages/TvHome'").replace("'pages/LoginPage'", "'pages/TvInputLab'"))

@@ -1,3 +1,4 @@
+import { TvNotificationService } from '../services/notifications/TvNotificationService';
 import { common } from '@kit.AbilityKit';
 import { router } from '@kit.ArkUI';
 import { AccountSessionCoordinator } from '../services/AccountSessionCoordinator';
@@ -9,6 +10,8 @@ import { provisionTvComputers } from '../services/TvComputerProvisioning';
 @Entry
 @Component
 struct TvHome {
+  @StorageLink('screenLinkNotificationsRevision') @Watch('notificationChanged') private notificationRevision: number = 0;
+  private visible: boolean = false;
   @State private computers: RemoteHost[] = [];
   @State private ready: boolean = false;
   @State private opening: boolean = false;
@@ -22,9 +25,21 @@ struct TvHome {
   private service: HostSyncService = HostSyncService.getInstance();
   private generation: number = 0;
 
-  aboutToAppear(): void { void this.refresh(); }
-  onPageShow(): void { this.opening = false; void this.refresh(); }
-  aboutToDisappear(): void { this.generation++; }
+  aboutToAppear(): void { this.visible = true; void this.refresh(); }
+  onPageShow(): void { this.visible = true; this.opening = false; void this.refresh(); }
+  onPageHide(): void { this.visible = false; }
+  aboutToDisappear(): void { this.visible = false; this.generation++; }
+
+  private notificationChanged(): void {
+    if (!this.visible || !this.ready || this.opening) { return; }
+    const notices: TvNotificationService = TvNotificationService.getInstance();
+    if (notices.routeAction('', false, false) !== 'open') { return; }
+    const target: string = notices.pendingHost();
+    const host: RemoteHost | undefined = this.computers.find((item: RemoteHost): boolean => item.id === target);
+    if (host === undefined) { return; }
+    this.openComputer(host);
+    notices.consume();
+  }
 
   private async refresh(): Promise<void> {
     const generation: number = ++this.generation;
@@ -41,6 +56,8 @@ struct TvHome {
       this.computers = this.service.getAllHosts().filter((h: RemoteHost): boolean => h.protocol === 'rustdesk');
       this.ready = true;
       this.error = '';
+      TvNotificationService.getInstance().initialize(context as common.UIAbilityContext);
+      this.notificationChanged();
     } catch (error) {
       if (generation === this.generation) { this.error = (error as Error).message; }
     }
@@ -157,6 +174,7 @@ struct TvHome {
           Text('你的电脑，就在大屏上').fontSize(16).fontColor('#AFC4CC')
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
         Row({ space: 10 }) {
+          this.headerAction($r('sys.symbol.bell'), '电脑通知', (): void => { if (this.ready) { router.pushUrl({ url: 'pages/TvNotifications' }); } })
           this.headerAction($r('sys.symbol.plus'), '添加电脑', (): void => { if (this.ready) { this.editing = true; } })
           this.headerAction($r('sys.symbol.gearshape_fill'), '管理高级连接', (): void => { router.pushUrl({ url: 'pages/HostListPage' }); })
           this.headerAction($r('sys.symbol.rectangle_on_rectangle'), '输入设备测试', (): void => { router.pushUrl({ url: 'pages/TvInputLab' }); })
