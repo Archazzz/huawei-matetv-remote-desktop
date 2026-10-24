@@ -54,20 +54,20 @@
 
   @Builder
   private mateTvDisplayPanel() {
-    Column({ space: 18 }) {
+    Column({ space: 14 }) {
       Row() {
-        Text('显示器与画质').fontSize(30).fontColor('#F4F8FA').layoutWeight(1)
+        Text('显示器与画质').fontSize(24).fontColor('#F4F8FA').layoutWeight(1)
         this.mateTvButton('完成', (): void => { this.mateTvCloseDisplay(); })
       }.width('100%')
-      Text(this.mateTvStreamStatus).fontSize(19).fontColor('#70E0C2').width('100%')
+      Text(this.mateTvStreamStatus).fontSize(16).fontColor('#70E0C2').width('100%')
       Scroll() {
-        Column({ space: 18 }) {
-          Text('选择显示器').fontSize(24).fontColor('#F4F8FA').width('100%')
+        Column({ space: 14 }) {
+          Text('选择显示器').fontSize(20).fontColor('#F4F8FA').width('100%')
           ForEach(this.rustDeskDisplayCapabilities.displays, (screen: RustDeskDisplayInfo): void => {
             Button((screen.display === this.rustDeskDisplayCapabilities.currentDisplay ? '✓ ' : '') +
               this.rustDeskDisplayLabel(screen) + '  ' + screen.width.toString() + ' × ' + screen.height.toString(),
               { type: ButtonType.Normal })
-              .width('100%').height(58).fontSize(23).borderRadius(10)
+              .width('100%').height(46).fontSize(19).borderRadius(10)
               .fontColor('#F4F8FA').backgroundColor('#243640')
               .enabled(screen.online && !this.rustDeskDisplaySwitchState.inputBlocked)
               .onClick((): void => {
@@ -78,7 +78,7 @@
           if (this.rustDeskDisplayCapabilities.displays.length === 0) {
             Text('正在等待电脑提供显示器列表…').fontSize(20).fontColor('#B1C2CA')
           }
-          Text('画质与流畅度').fontSize(24).fontColor('#F4F8FA').width('100%')
+          Text('画质与流畅度').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
             this.mateTvButton('跟手 · 60 帧上限', (): void => { this.mateTvQuality(1, 60); })
             this.mateTvButton('清晰 · 30 帧上限', (): void => { this.mateTvQuality(2, 30); })
@@ -86,16 +86,16 @@
           }
           Text('当前偏好：' + rustDeskQualityName(this.rustdeskImageQuality) + ' · ' +
             (this.rustdeskImageQuality === 2 ? '30' : this.rustdeskFps.toString()) + ' 帧上限')
-            .fontSize(19).fontColor('#B1C2CA').width('100%')
-          Text('编码').fontSize(24).fontColor('#F4F8FA').width('100%')
+            .fontSize(16).fontColor('#B1C2CA').width('100%')
+          Text('编码').fontSize(20).fontColor('#F4F8FA').width('100%')
           Row({ space: 12 }) {
             this.mateTvButton('H.265 优先', (): void => { this.setRustDeskCodecPref(5); })
             this.mateTvButton('H.264 优先', (): void => { this.setRustDeskCodecPref(4); })
             this.mateTvButton('VP9 兼容', (): void => { this.setRustDeskCodecPref(2); })
           }
           Text('帧率是上限；静止画面帧率和实际码率会降低。电脑不支持所选编码时会回退。')
-            .fontSize(18).fontColor('#B1C2CA').width('100%')
+            .fontSize(15).fontColor('#B1C2CA').width('100%')
         }.width('100%')
       }.layoutWeight(1).width('100%')
-    }.width('86%').height('84%').padding(28).backgroundColor('#192A34').borderRadius(20)
+    }.width('76%').height('82%').padding(22).backgroundColor('#192A34').borderRadius(20)
   }

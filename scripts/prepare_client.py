@@ -106,8 +106,8 @@ def patch_session(text: str) -> str:
           .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(200)
       }
       if (this.mateTvMode && this.mateTvTextOpen) {
-        Stack() { this.mateTvTextPanel() }
-          .width('100%').height('100%').backgroundColor('#CC101C25')
+        Stack({ alignContent: Alignment.TopEnd }) { this.mateTvTextPanel() }
+          .width('100%').height('100%').backgroundColor('#18101C25')
           .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(200)
       }
 

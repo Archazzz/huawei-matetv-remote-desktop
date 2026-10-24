@@ -120,6 +120,7 @@
     this.mateTvTextError = '';
     this.mateTvTextSession = -1;
     this.mateTvTextAttempt = -1;
+    void inputMethod.getController().stopInputSession().catch((): void => {});
     this.sessionInputOwner.disappeared('MateTvText');
   }
 
@@ -148,8 +149,8 @@
 
   @Builder
   private mateTvButton(label: string, action: () => void) {
-    Button(label, { type: ButtonType.Normal }).fontSize(19).height(48)
-      .padding({ left: 18, right: 18 }).borderRadius(10)
+    Button(label, { type: ButtonType.Normal }).fontSize(16).height(38)
+      .padding({ left: 14, right: 14 }).borderRadius(10)
       .backgroundColor('#243640').fontColor('#F4F8FA').onClick(action)
   }
 
@@ -160,7 +161,7 @@
         this.mateTvButton('切换电脑', (): void => { this.goBack(); })
         this.mateTvButton('显示器 / 画质', (): void => { this.mateTvOpenDisplay(); })
         Button(this.mateTvRightClick ? '点选位置右击' : '右键', { type: ButtonType.Normal })
-          .fontSize(19).height(48).padding({ left: 18, right: 18 }).borderRadius(10)
+          .fontSize(16).height(38).padding({ left: 14, right: 14 }).borderRadius(10)
           .backgroundColor('#243640').fontColor('#F4F8FA')
           .onClick((): void => { this.mateTvRightClick = !this.mateTvRightClick; })
         this.mateTvButton('文字 / 听写', (): void => { this.mateTvOpenText(); })
@@ -171,28 +172,35 @@
       }
       if (this.rustDeskRemoteInputPermissionKnown && !this.rustDeskRemoteInputAllowed) {
         Text('只能查看：电脑端未允许键盘鼠标控制，请检查 RustDesk 当前连接的权限。')
-          .fontSize(20).fontColor('#FFD4B5')
+          .fontSize(16).fontColor('#FFD4B5')
 
       }
-    }.padding(12).backgroundColor('#ED101C25').borderRadius(16)
+    }.padding(8).backgroundColor('#ED101C25').borderRadius(12)
       .position({ x: 24, y: 16 }).zIndex(100)
   }
 
   @Builder
   private mateTvTextPanel() {
-    Column({ space: 20 }) {
-      Text('输入到当前电脑').fontSize(28).fontColor('#F4F8FA')
-      Text('使用键盘或系统输入法听写，检查后再输入。不会自动按回车。')
-        .fontSize(20).fontColor('#B1C2CA')
-      TextArea({ text: this.mateTvText, placeholder: '在这里输入文字' })
-        .id('MateTvTextDraft').height(180).width('100%').fontSize(24).maxLength(8000)
+    Column({ space: 12 }) {
+      Row() {
+        Text('输入到电脑').fontSize(20).fontColor('#F4F8FA').layoutWeight(1)
+        Button('关闭', { type: ButtonType.Normal }).fontSize(15).height(32)
+          .backgroundColor('#243640').fontColor('#F4F8FA').borderRadius(8)
+          .onClick((): void => { this.mateTvCloseText(); })
+      }.width('100%')
+      Text('点输入框后长按语音键听写，确认后发送。')
+        .fontSize(15).fontColor('#B1C2CA').width('100%')
+      TextArea({ text: this.mateTvText, placeholder: '输入或听写…' })
+        .id('MateTvTextDraft').height(120).width('100%').fontSize(18).maxLength(8000)
         .onChange((value: string): void => { this.mateTvText = value; })
       if (this.mateTvTextError !== '') {
-        Text(this.mateTvTextError).fontSize(20).fontColor('#FFD4B5')
+        Text(this.mateTvTextError).fontSize(15).fontColor('#FFD4B5').width('100%')
       }
-      Row({ space: 16 }) {
-        this.mateTvButton('取消', (): void => { this.mateTvCloseText(); })
-        this.mateTvButton('输入到电脑', (): void => { this.mateTvSubmitText(); })
-      }
-    }.width('76%').padding(32).backgroundColor('#192A34').borderRadius(20)
+      Button('输入到电脑', { type: ButtonType.Normal })
+        .width('100%').height(38).fontSize(16).borderRadius(9)
+        .backgroundColor('#386D61').fontColor('#F4F8FA').enabled(this.mateTvText.length > 0)
+        .onClick((): void => { this.mateTvSubmitText(); })
+      Text('不会自动按回车').fontSize(13).fontColor('#B1C2CA')
+    }.width(340).constraintSize({ maxWidth: '44%' }).padding(18)
+      .backgroundColor('#F5192A34').borderRadius(14).margin({ top: 70, right: 20 })
   }
