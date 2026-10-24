@@ -34,4 +34,4 @@
 - `node --test tests/tv-home-navigation.test.cjs tests/tv-notifications.test.cjs`：23 项通过。
 - `python3 -m unittest discover -s tests -p 'test_notification*.py'`：40 项通过。
 - 补丁空白检查、构建脚本 shell 语法检查与相关 Python 源码编译检查通过。
-- 本子任务未运行完整 HAP 构建、未安装电视、未重启通知服务。由主 agent 集成后分别报告已构建、已安装与已实测状态。
+- 主流程集成后：签名 HAP 构建成功，电视替换安装并启动；通知服务已重启，launchd 状态为 running。前端集成回归 84 项通过，无跳过。新版设置的完整视觉与遥控器实机交互仍待验收，不能将构建或单元测试等同于实机通过。
