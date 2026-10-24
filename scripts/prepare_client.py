@@ -82,6 +82,8 @@ def patch_session(text: str) -> str:
                         '      if (!this.mateTvMode && this.connected && this.shouldShowRemoteSessionTopBar()) {')
     text = replace_once(text, "            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');",
                         "            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
+    text = replace_once(text, '  onBackPress(): boolean {',
+                        '  onBackPress(): boolean {\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }')
     # TV remote uses normalized click/pan. Ignore synthesized touch to avoid a
     # second click; actual mouse and keyboard continue through upstream handlers.
     if text.count('.onTouch(this.handleConfiguredTouchInput)') != 2:
@@ -104,12 +106,12 @@ def patch_session(text: str) -> str:
       if (this.mateTvMode && this.mateTvDisplayOpen) {
         Stack() { this.mateTvDisplayPanel() }
           .width('100%').height('100%').backgroundColor('#CC101C25')
-          .hitTestBehavior(HitTestMode.Block).zIndex(200)
+          .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(200)
       }
       if (this.mateTvMode && this.mateTvTextOpen) {
         Stack() { this.mateTvTextPanel() }
           .width('100%').height('100%').backgroundColor('#CC101C25')
-          .hitTestBehavior(HitTestMode.Block).zIndex(200)
+          .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(200)
       }
 
 '''
