@@ -6,7 +6,7 @@ const { stripTypeScriptTypes } = require('node:module');
 const vm = require('node:vm');
 const source = readFileSync('tv/overlay/entry/src/main/ets/services/TvRemoteKeyPolicy.ets', 'utf8').replace(/^export /gm, '');
 const api = vm.createContext({});
-vm.runInContext(stripTypeScriptTypes(source + '\nglobalThis.api = { TvRemoteKeyPolicy, defaultTvRemoteKeyProfile, parseTvRemoteKeyProfile, tvRemoteDeviceFingerprint, resolveTvRemoteDevice, tvRemoteActionKeys };'), api);
+vm.runInContext(stripTypeScriptTypes(source + '\nglobalThis.api = { TvRemoteKeyPolicy, defaultTvRemoteKeyProfile, parseTvRemoteKeyProfile, tvRemoteDeviceFingerprint, resolveTvRemoteDevice, tvRemoteActionKeys, tvRemoteVoiceCandidate };'), api);
 const { TvRemoteKeyPolicy, defaultTvRemoteKeyProfile, parseTvRemoteKeyProfile, tvRemoteDeviceFingerprint, resolveTvRemoteDevice, tvRemoteActionKeys } = api.api;
 const plain = value => JSON.parse(JSON.stringify(value));
 function setup(action = 'arrow-up') {
@@ -96,10 +96,10 @@ test('durable binding requires unique nonvirtual hardware identity; IDs may chan
 test('malformed per-host preferences fail closed without mapping arbitrary actions', () => {
   const profile = defaultTvRemoteKeyProfile();
   for (const raw of ['null', 'bad', '{}', JSON.stringify({ ...profile, actions: ['exec', 'original', 'original', 'original'] }),
-    JSON.stringify({ ...profile, enabled: 'true' }), JSON.stringify({ ...profile, version: 2 })]) {
+    JSON.stringify({ ...profile, enabled: 'true' }), JSON.stringify({ ...profile, version: 3 })]) {
     assert.deepEqual(plain(parseTvRemoteKeyProfile(raw)), plain(profile));
   }
-  const custom = { ...profile, actions: ['copy', 'paste', 'page-up', 'scroll-down'] };
+  const custom = { ...profile, actions: ['copy', 'paste', 'page-up', 'scroll-down', 'original', 'original'] };
   assert.deepEqual(plain(parseTvRemoteKeyProfile(JSON.stringify(custom))), plain(custom));
 });
 
@@ -249,4 +249,179 @@ test('real overlay owner cancels mapped holds while allowing release and a fresh
   dispatchThroughOwners(h, 2012, 17, true);
   dispatchThroughOwners(h, 2012, 17, false);
   assert.equal(calls.length, 2);
+});
+
+function gestures(single = 'enter', double = 'copy', long = 'paste', code = 2012) {
+  const profile = defaultTvRemoteKeyProfile();
+  const index = code === 2067 ? 4 : 0;
+  profile.actions[index] = single; profile.doubleActions[index] = double; profile.longActions[index] = long;
+  const policy = new TvRemoteKeyPolicy();
+  return { policy, profile,
+    route: (down, now, active = true, bound = 17) => plain(policy.route(code, 17, down, active, bound, profile, now)),
+    advance: (now, active = true, bound = 17) => { policy.advance(now, active, bound, profile); return plain(policy.drain()); },
+    drain: () => plain(policy.drain()),
+  };
+}
+
+test('v1 per-computer mapping migrates without enabling gestures or claiming voice support', () => {
+  const profile = parseTvRemoteKeyProfile(JSON.stringify({ version: 1, enabled: true, fingerprint: 'saved', deviceName: 'remote',
+    actions: ['copy', 'paste', 'pan-left', 'pan-right'] }));
+  assert.equal(profile.version, 2);
+  assert.deepEqual(plain(profile.actions), ['copy', 'paste', 'pan-left', 'pan-right', 'original', 'original']);
+  assert.equal(profile.voiceKeyCode, -1);
+  assert.ok(profile.doubleActions.every(action => action === 'disabled'));
+  assert.ok(profile.longActions.every(action => action === 'disabled'));
+});
+
+test('menu defaults pass through immediately and an explicit single-only mapping has no timer delay', () => {
+  const p = new TvRemoteKeyPolicy(), profile = defaultTvRemoteKeyProfile();
+  for (const down of [true, false]) assert.deepEqual(plain(p.route(2067, 17, down, true, 17, profile, 1000)), none);
+  const s = gestures('enter', 'disabled', 'disabled', 2067);
+  assert.equal(s.route(true, 1000).action, 'enter');
+  assert.equal(s.policy.hasPending(), false);
+  assert.equal(s.route(false, 1030).action, '');
+});
+
+test('single waits only for configured double window; double suppresses both singles', () => {
+  const single = gestures('enter', 'copy', 'disabled');
+  assert.equal(single.route(true, 0).action, ''); single.route(false, 30);
+  assert.deepEqual(single.advance(309), []);
+  assert.deepEqual(single.advance(310), ['enter']);
+  assert.equal(single.policy.hasPending(), false);
+  const double = gestures('enter', 'copy', 'disabled');
+  double.route(true, 0); double.route(false, 30); double.route(true, 200);
+  assert.equal(double.route(false, 230).action, 'copy');
+  assert.deepEqual(double.advance(1000), []);
+});
+
+test('double boundary expiry emits the first single and starts a fresh click', () => {
+  const s = gestures('enter', 'copy', 'disabled');
+  s.route(true, 0); s.route(false, 20);
+  assert.equal(s.route(true, 300).action, '');
+  assert.deepEqual(s.drain(), ['enter']);
+  assert.equal(s.route(false, 320).action, '');
+  assert.deepEqual(s.advance(600), ['enter']);
+});
+
+test('long emits once at 650ms, ignores OS repeats and never emits single or double on release', () => {
+  const s = gestures();
+  s.route(true, 0); s.route(true, 200); s.route(true, 400);
+  assert.deepEqual(s.advance(649), []);
+  assert.deepEqual(s.advance(650), ['paste']);
+  assert.equal(s.route(true, 900).action, '');
+  assert.equal(s.route(false, 1000).action, '');
+  assert.deepEqual(s.advance(1600), []);
+});
+
+test('long-only short press fires single on release, with no double wait', () => {
+  const s = gestures('enter', 'disabled', 'paste');
+  assert.equal(s.route(true, 0).action, '');
+  assert.equal(s.route(false, 300).action, 'enter');
+  assert.deepEqual(s.advance(1000), []);
+});
+
+test('holding the second click into a long press resolves to long only', () => {
+  const s = gestures();
+  s.route(true, 0); s.route(false, 20); s.route(true, 200);
+  assert.deepEqual(s.advance(500), []);
+  assert.deepEqual(s.advance(850), ['paste']);
+  assert.equal(s.route(false, 900).action, '');
+  assert.deepEqual(s.advance(1200), []);
+});
+
+test('cancel, inactive focus, changed device and changed settings discard pending single/long', () => {
+  for (const held of [false, true]) for (const change of ['cancel', 'inactive', 'device', 'settings']) {
+    const s = gestures(); s.route(true, 0); if (!held) s.route(false, 20);
+    if (change === 'cancel') s.policy.cancel();
+    if (change === 'settings') s.profile.doubleActions[0] = 'undo';
+    assert.deepEqual(s.advance(1000, change !== 'inactive', change === 'device' ? 18 : 17), [], change);
+    assert.equal(s.policy.hasPending(), false);
+  }
+});
+
+test('original single with a gesture override is an atomic tap, never a partial upstream lease', () => {
+  const s = gestures('original', 'copy', 'disabled', 2067);
+  assert.equal(s.route(true, 0).consume, true); assert.equal(s.route(false, 20).consume, true);
+  assert.deepEqual(s.advance(300), ['original:2067']);
+});
+
+test('voice stays untouched until learned; reserved keys cannot be persisted as voice', () => {
+  const p = new TvRemoteKeyPolicy(), profile = defaultTvRemoteKeyProfile();
+  profile.actions[5] = 'copy';
+  for (const code of [2722, 9, 1, 2, 16, 17, 18, 22, 2017]) {
+    assert.deepEqual(plain(p.route(code, 17, true, true, 17, profile, 1000)), none);
+    assert.deepEqual(plain(p.route(code, 17, false, true, 17, profile, 1030)), none);
+  }
+  profile.voiceKeyCode = 2722;
+  assert.equal(p.route(2722, 17, true, true, 17, profile, 1100).action, 'copy');
+  assert.equal(p.route(2722, 88, true, true, 17, profile, 1200).consume, false);
+  for (const code of [1, 2, 16, 17, 18, 22, 2017, 2708]) {
+    assert.equal(parseTvRemoteKeyProfile(JSON.stringify({ ...profile, voiceKeyCode: code })).voiceKeyCode, -1);
+  }
+});
+
+test('voice learning requires a paired real candidate on the bound remote, never a lone Up', () => {
+  api.hilog = { info() {} }; api.RD_DOMAIN = 0; api.RD_TAG = 'test';
+  const { h } = harness(); h.mateTvDisplayOpen = true; h.mateTvVoiceLearning = true;
+  h.mateTvSaveRemoteKeys = () => h.mateTvCancelVoiceLearning();
+  const event = (code, device, down) => ({ keyCode: code, deviceId: device, type: down ? 0 : 1, stopPropagation() {} });
+  for (const code of [1, 2, 16, 17, 18, 22, 2017]) assert.equal(h.mateTvLearnVoiceKey(event(code, 17, true)), false);
+  assert.equal(h.mateTvLearnVoiceKey(event(2722, 88, true)), false);
+  h.mateTvLearnVoiceKey(event(2722, 17, false)); assert.equal(h.mateTvRemoteKeys.voiceKeyCode, -1);
+  h.mateTvLearnVoiceKey(event(2722, 17, true)); h.mateTvLearnVoiceKey(event(9, 17, false));
+  assert.equal(h.mateTvRemoteKeys.voiceKeyCode, -1);
+  h.mateTvLearnVoiceKey(event(2722, 17, false));
+  assert.equal(h.mateTvRemoteKeys.voiceKeyCode, 2722);
+  assert.equal(h.mateTvVoiceLearning, false);
+});
+
+test('cancelled gesture timer cannot execute even if an already queued callback runs', () => {
+  let now = 0, callback;
+  api.Date = { now: () => now }; api.setTimeout = fn => { callback = fn; return 1; };
+  const { h, calls, event } = harness();
+  h.mateTvRemoteKeys.doubleActions[0] = 'paste';
+  h.mateTvRouteRemoteKey(event(true)); now = 20; h.mateTvRouteRemoteKey(event(false));
+  assert.equal(typeof callback, 'function'); const stale = callback;
+  h.mateTvCancelRemoteKeys(); now = 1000; stale();
+  assert.equal(calls.length, 0); assert.equal(h.mateTvRemoteGestureTimer, -1);
+});
+
+test('gesture timer rechecks actual foreground ownership before long action', () => {
+  let now = 0, callback;
+  api.Date = { now: () => now }; api.setTimeout = fn => { callback = fn; return 1; };
+  const { h, calls, event } = harness();
+  h.mateTvRemoteKeys.longActions[0] = 'paste'; h.mateTvRouteRemoteKey(event(true));
+  h.remoteKeyboardForeground = () => false; now = 1000; callback();
+  assert.equal(calls.length, 0); assert.equal(h.mateTvRemoteGestureTimer, -1);
+  h.remoteKeyboardForeground = () => true; h.mateTvRouteRemoteKey(event(false));
+  assert.equal(calls.length, 0);
+});
+
+test('menu can open local settings/dictation or toggle fit without sending computer keys', () => {
+  api.Date = { now: () => 1000 };
+  for (const action of ['open-settings', 'open-dictation', 'toggle-fit']) {
+    const { h, calls } = harness(); const local = [];
+    h.mateTvOpenDisplay = () => local.push('settings');
+    h.mateTvOpenText = () => local.push('dictation');
+    h.mateTvSetViewFill = fill => local.push(fill);
+    h.mateTvViewCanX = true; h.mateTvViewCanY = false;
+    h.mateTvRemoteKeys.actions[4] = action;
+    dispatchThroughOwners(h, 2067, 17, true); dispatchThroughOwners(h, 2067, 17, false);
+    assert.deepEqual(local, [action === 'open-settings' ? 'settings' : action === 'open-dictation' ? 'dictation' : false]);
+    assert.deepEqual(calls, []);
+    h.keyboardImeActive = true;
+    dispatchThroughOwners(h, 2067, 17, true); dispatchThroughOwners(h, 2067, 17, false);
+    assert.equal(local.length, 1);
+  }
+});
+
+test('lifecycle cancellation also invalidates outstanding device and voice capture', () => {
+  const { h } = harness();
+  h.mateTvRemoteCapturing = true; h.mateTvVoiceLearning = true;
+  const captureGeneration = h.mateTvRemoteCaptureGeneration;
+  const voiceGeneration = h.mateTvVoiceGeneration;
+  h.mateTvCancelRemoteKeys();
+  assert.equal(h.mateTvRemoteCapturing, false); assert.equal(h.mateTvVoiceLearning, false);
+  assert.ok(h.mateTvRemoteCaptureGeneration > captureGeneration);
+  assert.ok(h.mateTvVoiceGeneration > voiceGeneration);
 });

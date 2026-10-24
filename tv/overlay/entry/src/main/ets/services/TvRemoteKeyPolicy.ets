@@ -1,6 +1,6 @@
 export interface TvRemoteActionChoice { id: string; label: string; }
 export const TV_REMOTE_KEY_ACTIONS: TvRemoteActionChoice[] = [
-  { id: 'original', label: '原方向键' },
+  { id: 'original', label: '原按键' },
   { id: 'arrow-up', label: '电脑 ↑' }, { id: 'arrow-down', label: '电脑 ↓' },
   { id: 'arrow-left', label: '电脑 ←' }, { id: 'arrow-right', label: '电脑 →' },
   { id: 'enter', label: 'Enter 确认' }, { id: 'escape', label: 'Esc 取消' },
@@ -11,7 +11,9 @@ export const TV_REMOTE_KEY_ACTIONS: TvRemoteActionChoice[] = [
   { id: 'scroll-up', label: '滚轮向上' }, { id: 'scroll-down', label: '滚轮向下' },
   { id: 'pan-up', label: '画面向上移动' }, { id: 'pan-down', label: '画面向下移动' },
   { id: 'pan-left', label: '画面向左移动' }, { id: 'pan-right', label: '画面向右移动' },
-  { id: 'next-display', label: '下一块显示器' }, { id: 'none', label: '不执行操作' }
+  { id: 'next-display', label: '下一块显示器' },
+  { id: 'open-settings', label: '打开设置' }, { id: 'open-dictation', label: '文字与听写' },
+  { id: 'toggle-fit', label: '完整画面 / 短边铺满' }, { id: 'none', label: '不执行操作' }
 ];
 
 export interface TvRemoteKeyProfile {
@@ -20,6 +22,9 @@ export interface TvRemoteKeyProfile {
   fingerprint: string;
   deviceName: string;
   actions: string[];
+  doubleActions: string[];
+  longActions: string[];
+  voiceKeyCode: number;
 }
 export interface TvRemoteDevice {
   id: number;
@@ -30,24 +35,48 @@ export interface TvRemoteDevice {
   virtual: boolean;
 }
 export function defaultTvRemoteKeyProfile(): TvRemoteKeyProfile {
-  return { version: 1, enabled: true, fingerprint: '', deviceName: '',
-    actions: ['original', 'original', 'original', 'original'] };
+  return { version: 2, enabled: true, fingerprint: '', deviceName: '',
+    actions: ['original', 'original', 'original', 'original', 'original', 'original'],
+    doubleActions: ['disabled', 'disabled', 'disabled', 'disabled', 'disabled', 'disabled'],
+    longActions: ['disabled', 'disabled', 'disabled', 'disabled', 'disabled', 'disabled'], voiceKeyCode: -1 };
 }
 export function tvRemoteActionValid(action: string): boolean {
   return TV_REMOTE_KEY_ACTIONS.some((item: TvRemoteActionChoice): boolean => item.id === action);
 }
+export function tvRemoteVoiceCandidate(keyCode: number): boolean {
+  // System Home/Back/Power/Volume and arbitrary keyboard keys are never learnable.
+  // These are candidates only: the UI must observe a full physical Down/Up pair.
+  return keyCode === 2722 || keyCode === 9;
+}
+export function tvRemoteGestureActionValid(action: string): boolean {
+  return action === 'disabled' || (action !== 'original' && tvRemoteActionValid(action));
+}
 export function parseTvRemoteKeyProfile(raw: string): TvRemoteKeyProfile {
   try {
     const value = JSON.parse(raw) as TvRemoteKeyProfile;
-    if (value === null || value.version !== 1 || typeof value.enabled !== 'boolean' ||
+    if (value === null || (value.version !== 1 && value.version !== 2) || typeof value.enabled !== 'boolean' ||
         typeof value.fingerprint !== 'string' || value.fingerprint.length > 1024 ||
         typeof value.deviceName !== 'string' || value.deviceName.length > 256 ||
-        !Array.isArray(value.actions) || value.actions.length !== 4 ||
+        !Array.isArray(value.actions) || value.actions.length !== (value.version === 1 ? 4 : 6) ||
         !value.actions.every((action: string): boolean => typeof action === 'string' && tvRemoteActionValid(action))) {
       return defaultTvRemoteKeyProfile();
     }
-    return { version: 1, enabled: value.enabled, fingerprint: value.fingerprint,
-      deviceName: value.deviceName, actions: value.actions.slice() };
+    const result: TvRemoteKeyProfile = defaultTvRemoteKeyProfile();
+    result.enabled = value.enabled; result.fingerprint = value.fingerprint; result.deviceName = value.deviceName;
+    for (let index: number = 0; index < value.actions.length; index++) { result.actions[index] = value.actions[index]; }
+    if (value.version === 1) { return result; }
+    if (!Array.isArray(value.doubleActions) || value.doubleActions.length !== 6 ||
+        !value.doubleActions.every((action: string): boolean => typeof action === 'string' && tvRemoteGestureActionValid(action)) ||
+        !Array.isArray(value.longActions) || value.longActions.length !== 6 ||
+        !value.longActions.every((action: string): boolean => typeof action === 'string' && tvRemoteGestureActionValid(action)) ||
+        (value.voiceKeyCode !== -1 && !tvRemoteVoiceCandidate(value.voiceKeyCode))) { return defaultTvRemoteKeyProfile(); }
+    result.doubleActions = value.doubleActions.slice(); result.longActions = value.longActions.slice();
+    result.voiceKeyCode = value.voiceKeyCode;
+    // An application cannot replay the system assistant after waiting for a gesture.
+    if (result.actions[5] === 'original' && (result.doubleActions[5] !== 'disabled' || result.longActions[5] !== 'disabled')) {
+      result.actions[5] = 'none';
+    }
+    return result;
   } catch (_error) { return defaultTvRemoteKeyProfile(); }
 }
 // Numeric device IDs can be reused. Only a unique hardware identity can restore a
@@ -87,50 +116,111 @@ export function tvRemoteActionRepeats(action: string): boolean {
     action.indexOf('pan-') === 0 || action === 'page-up' || action === 'page-down';
 }
 export interface TvRemoteKeyDecision { consume: boolean; action: string; }
-interface TvRemoteHeldDirection { action: string; cancelled: boolean; last: number; }
-
+interface TvRemoteHeldKey {
+  keyCode: number; deviceId: number; index: number;
+  single: string; double: string; long: string;
+  down: boolean; downAt: number; releasedAt: number; second: boolean;
+  longFired: boolean; cancelled: boolean; last: number;
+}
+export function tvRemoteKeyIndex(keyCode: number, profile: TvRemoteKeyProfile): number {
+  const direction: number = tvRemoteDirectionIndex(keyCode);
+  if (direction >= 0) { return direction; }
+  if (keyCode === 2067) { return 4; }
+  if (tvRemoteVoiceCandidate(keyCode) && profile.voiceKeyCode === keyCode) { return 5; }
+  return -1;
+}
 export class TvRemoteKeyPolicy {
-  private held: Map<string, TvRemoteHeldDirection> = new Map<string, TvRemoteHeldDirection>();
+  private held: Map<string, TvRemoteHeldKey> = new Map<string, TvRemoteHeldKey>();
+  private pending: string[] = [];
 
   cancel(): void {
-    this.held.forEach((value: TvRemoteHeldDirection): void => { value.cancelled = true; });
+    this.pending = [];
+    this.held.forEach((value: TvRemoteHeldKey, key: string): void => {
+      if (value.down) { value.cancelled = true; }
+      else { this.held.delete(key); }
+    });
   }
-
+  drain(): string[] { const actions: string[] = this.pending; this.pending = []; return actions; }
+  hasPending(): boolean {
+    let result: boolean = false;
+    this.held.forEach((value: TvRemoteHeldKey): void => {
+      if (!value.cancelled && ((!value.down && value.releasedAt >= 0) ||
+          (value.down && value.long !== 'disabled' && !value.longFired))) { result = true; }
+    });
+    return result;
+  }
+  private singleAction(value: TvRemoteHeldKey): string {
+    if (value.single === 'original') { return value.index === 5 ? '' : 'original:' + value.keyCode.toString(); }
+    return value.single === 'none' ? '' : value.single;
+  }
+  private current(value: TvRemoteHeldKey, bound: number, profile: TvRemoteKeyProfile): boolean {
+    return profile.enabled && value.deviceId === bound && tvRemoteKeyIndex(value.keyCode, profile) === value.index &&
+      value.single === profile.actions[value.index] && value.double === profile.doubleActions[value.index] &&
+      value.long === profile.longActions[value.index];
+  }
+  advance(now: number, active: boolean, bound: number, profile: TvRemoteKeyProfile): void {
+    if (!active) { this.cancel(); return; }
+    this.held.forEach((value: TvRemoteHeldKey, key: string): void => {
+      if (!this.current(value, bound, profile)) { value.cancelled = true; }
+      if (value.cancelled) { if (!value.down) { this.held.delete(key); } return; }
+      if (value.down && value.long !== 'disabled' && !value.longFired && now - value.downAt >= 650) {
+        value.longFired = true; value.releasedAt = -1;
+        if (value.long !== 'none') { this.pending.push(value.long); }
+      } else if (!value.down && value.releasedAt >= 0 && now - value.releasedAt >= 280) {
+        const action: string = this.singleAction(value);
+        if (action.length > 0) { this.pending.push(action); }
+        this.held.delete(key);
+      }
+    });
+  }
   route(keyCode: number, deviceId: number, down: boolean, active: boolean,
     boundDeviceId: number, profile: TvRemoteKeyProfile, now: number): TvRemoteKeyDecision {
-    const index: number = tvRemoteDirectionIndex(keyCode);
-    if (index < 0 || !Number.isInteger(deviceId) || deviceId < 0) { return { consume: false, action: '' }; }
+    this.advance(now, active, boundDeviceId, profile);
+    if (!Number.isInteger(deviceId) || deviceId < 0) { return { consume: false, action: '' }; }
     const identity: string = deviceId.toString() + ':' + keyCode.toString();
-    const held: TvRemoteHeldDirection | undefined = this.held.get(identity);
-    if (!down) {
-      this.held.delete(identity);
-      return { consume: active && held !== undefined && held.action !== 'original', action: '' };
+    const existing: TvRemoteHeldKey | undefined = this.held.get(identity);
+    const index: number = tvRemoteKeyIndex(keyCode, profile);
+    if (index < 0 && existing === undefined) { return { consume: false, action: '' }; }
+    if (existing !== undefined && existing.cancelled) {
+      if (!down) { this.held.delete(identity); }
+      return { consume: active, action: '' };
     }
-    if (!active) {
-      if (held !== undefined) { held.cancelled = true; }
-      else if (profile.enabled && deviceId === boundDeviceId &&
-          profile.actions[index] !== 'original' && this.held.size < 32) {
-        this.held.set(identity, { action: profile.actions[index], cancelled: true, last: now });
+    if (existing !== undefined) {
+      const advanced: boolean = existing.double !== 'disabled' || existing.long !== 'disabled';
+      if (down) {
+        if (!existing.down) {
+          existing.down = true; existing.downAt = now; existing.second = true; existing.releasedAt = -1;
+        } else if (!advanced && tvRemoteActionRepeats(existing.single) && now - existing.last >= 80) {
+          existing.last = now; return { consume: true, action: this.singleAction(existing) };
+        }
+        return { consume: true, action: '' };
       }
+      if (!existing.down) { return { consume: true, action: '' }; }
+      existing.down = false;
+      if (!advanced || existing.longFired) { this.held.delete(identity); return { consume: true, action: '' }; }
+      if (existing.second && existing.double !== 'disabled') {
+        this.held.delete(identity);
+        return { consume: true, action: existing.double === 'none' ? '' : existing.double };
+      }
+      if (existing.double === 'disabled') {
+        this.held.delete(identity); return { consume: true, action: this.singleAction(existing) };
+      }
+      existing.releasedAt = now;
+      return { consume: true, action: '' };
+    }
+    if (!down || !profile.enabled || boundDeviceId < 0 || deviceId !== boundDeviceId || index < 0) {
       return { consume: false, action: '' };
     }
-    if (held !== undefined) {
-      if (!profile.enabled || deviceId !== boundDeviceId || profile.actions[index] !== held.action) {
-        held.cancelled = true;
-      }
-      if (held.cancelled) { return { consume: true, action: '' }; }
-      if (held.action === 'original') { return { consume: false, action: '' }; }
-      if (!tvRemoteActionRepeats(held.action) || now - held.last < 80) { return { consume: true, action: '' }; }
-      held.last = now;
-      return { consume: true, action: held.action };
-    }
-    if (!profile.enabled || boundDeviceId < 0 || deviceId !== boundDeviceId) { return { consume: false, action: '' }; }
-    const action: string = tvRemoteActionValid(profile.actions[index]) ? profile.actions[index] : 'original';
-    if (action === 'original') { return { consume: false, action: '' }; }
-    // Never clear cancelled keys to make room: an OS repeat must not revive a
-    // held action after a lifecycle fence. Releases drain these bounded records.
-    if (this.held.size >= 32) { return { consume: true, action: '' }; }
-    this.held.set(identity, { action: action, cancelled: false, last: now });
-    return { consume: action !== 'original', action: action === 'original' || action === 'none' ? '' : action };
+    const single: string = profile.actions[index];
+    const double: string = profile.doubleActions[index];
+    const long: string = profile.longActions[index];
+    const advanced: boolean = double !== 'disabled' || long !== 'disabled';
+    if (single === 'original' && !advanced) { return { consume: false, action: '' }; }
+    if (this.held.size >= 32) { return { consume: active, action: '' }; }
+    const value: TvRemoteHeldKey = { keyCode: keyCode, deviceId: deviceId, index: index,
+      single: single, double: double, long: long, down: true, downAt: now, releasedAt: -1,
+      second: false, longFired: false, cancelled: !active, last: now };
+    this.held.set(identity, value);
+    return { consume: active, action: active && !advanced ? this.singleAction(value) : '' };
   }
 }

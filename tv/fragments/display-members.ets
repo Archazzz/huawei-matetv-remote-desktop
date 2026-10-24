@@ -110,6 +110,7 @@
 
   private mateTvCloseDisplay(): void {
     this.mateTvCancelRemoteCapture();
+    this.mateTvCancelVoiceLearning();
     this.mateTvDisplayOpen = false;
     // These inline panels have no native closing animation or stacked instances.
     // Retire all of our own leases, including an earlier duplicate open.

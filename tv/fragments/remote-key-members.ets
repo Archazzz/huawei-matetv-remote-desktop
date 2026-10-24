@@ -2,6 +2,14 @@
   @State private mateTvRemoteDeviceId: number = -1;
   @State private mateTvRemoteBindingStatus: string = '未绑定';
   @State private mateTvRemoteCapturing: boolean = false;
+  @State private mateTvRemoteSelectedKey: number = 0;
+  @State private mateTvVoiceLearning: boolean = false;
+  @State private mateTvVoiceStatus: string = '未检测';
+  private mateTvVoiceDown: number = -1;
+  private mateTvVoiceTimer: number = -1;
+  private mateTvVoiceGeneration: number = 0;
+  private mateTvRemoteGestureTimer: number = -1;
+  private mateTvRemoteGestureGeneration: number = 0;
   @State private mateTvRemoteCandidateName: string = '';
   private mateTvRemoteCandidate: TvRemoteDevice | null = null;
   private mateTvRemotePolicy: TvRemoteKeyPolicy = new TvRemoteKeyPolicy();
@@ -15,15 +23,16 @@
   }
 
   private mateTvLoadRemoteKeys(): void {
-    this.mateTvRemotePolicy.cancel();
+    this.mateTvCancelRemoteKeys();
     this.mateTvCancelRemoteCapture();
     const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
     this.mateTvRemoteKeys = parseTvRemoteKeyProfile(prefs.getSync(this.mateTvRemotePrefsKey(), '') as string);
+    this.mateTvVoiceStatus = this.mateTvRemoteKeys.voiceKeyCode < 0 ? '未检测' : '已检测按键';
     this.mateTvRemoteDevicesChanged();
   }
 
   private mateTvSaveRemoteKeys(): void {
-    this.mateTvRemotePolicy.cancel();
+    this.mateTvCancelRemoteKeys();
     const key: string = this.mateTvRemotePrefsKey();
     if (key.length === 0) { return; }
     const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
@@ -38,7 +47,7 @@
 
   private mateTvRemoteDevicesChanged(): void {
     if (!this.mateTvMode) { return; }
-    this.mateTvRemotePolicy.cancel();
+    this.mateTvCancelRemoteKeys();
     this.mateTvCancelRemoteCapture();
     this.mateTvRemoteDeviceId = -1;
     this.mateTvRemoteBindingStatus = '未绑定';
@@ -98,43 +107,150 @@
     const fingerprint: string = tvRemoteDeviceFingerprint(candidate);
     this.mateTvRemoteDeviceGeneration++;
     this.mateTvRemoteDeviceId = candidate.id;
-    this.mateTvRemoteKeys = { version: 1, enabled: true, fingerprint: fingerprint,
-      deviceName: candidate.name, actions: this.mateTvRemoteKeys.actions.slice() };
+    const profile: TvRemoteKeyProfile = parseTvRemoteKeyProfile(JSON.stringify(this.mateTvRemoteKeys));
+    if (fingerprint.length === 0 || fingerprint !== profile.fingerprint) { profile.voiceKeyCode = -1; }
+    profile.enabled = true; profile.fingerprint = fingerprint; profile.deviceName = candidate.name;
+    this.mateTvRemoteKeys = profile;
+    this.mateTvVoiceStatus = profile.voiceKeyCode < 0 ? '未检测' : '已检测按键';
     this.mateTvRemoteBindingStatus = (fingerprint.length === 0 ? '仅本次连接 · ' : '已绑定 · ') + candidate.name;
     this.mateTvCancelRemoteCapture();
     this.mateTvSaveRemoteKeys();
   }
 
-  private mateTvSetRemoteAction(direction: number, action: string): void {
-    if (direction < 0 || direction > 3 || !tvRemoteActionValid(action)) { return; }
-    const actions: string[] = this.mateTvRemoteKeys.actions.slice();
-    actions[direction] = action;
-    this.mateTvRemoteKeys = { version: 1, enabled: this.mateTvRemoteKeys.enabled,
-      fingerprint: this.mateTvRemoteKeys.fingerprint, deviceName: this.mateTvRemoteKeys.deviceName, actions: actions };
+  private mateTvSetRemoteAction(index: number, gesture: number, action: string): void {
+    if (index < 0 || index > 5 || (gesture === 0 ? !tvRemoteActionValid(action) : !tvRemoteGestureActionValid(action))) { return; }
+    const profile: TvRemoteKeyProfile = parseTvRemoteKeyProfile(JSON.stringify(this.mateTvRemoteKeys));
+    if (gesture === 0) { profile.actions[index] = action; }
+    else if (gesture === 1) { profile.doubleActions[index] = action; }
+    else { profile.longActions[index] = action; }
+    if (index === 5 && profile.actions[5] === 'original' &&
+        (profile.doubleActions[5] !== 'disabled' || profile.longActions[5] !== 'disabled')) { profile.actions[5] = 'none'; }
+    this.mateTvRemoteKeys = profile;
+    this.mateTvSaveRemoteKeys();
+  }
+
+  private mateTvRemoteInputActive(): boolean {
+    return this.connected && this.sessionId > 0 && this.inputForwardReady &&
+      !this.mateTvLeaving && !this.mateTvDisplayOpen && !this.mateTvTextOpen &&
+      !this.keyboardOpen && !this.keyboardImeActive && !this.remoteKeyboardModalOwnsInput() &&
+      this.remoteKeyboardForeground() && this.harmonyShortcutRemoteInputAllowed() && !this.sessionInputOwner.blocked();
+  }
+
+  private mateTvCancelRemoteKeys(): void {
+    this.mateTvRemoteGestureGeneration++;
+    if (this.mateTvRemoteGestureTimer >= 0) { clearTimeout(this.mateTvRemoteGestureTimer); }
+    this.mateTvRemoteGestureTimer = -1;
+    this.mateTvRemotePolicy.cancel();
+    this.mateTvCancelVoiceLearning();
+    this.mateTvCancelRemoteCapture();
+  }
+
+  private mateTvFlushRemoteGestures(): void {
+    const actions: string[] = this.mateTvRemotePolicy.drain();
+    for (const action of actions) {
+      if (!this.mateTvRemoteInputActive()) { this.mateTvCancelRemoteKeys(); return; }
+      this.mateTvRunRemoteAction(action);
+    }
+  }
+
+  private mateTvScheduleRemoteGestures(): void {
+    if (!this.mateTvRemotePolicy.hasPending() || this.mateTvRemoteGestureTimer >= 0) { return; }
+    const generation: number = this.mateTvRemoteGestureGeneration;
+    this.mateTvRemoteGestureTimer = setTimeout((): void => {
+      if (generation !== this.mateTvRemoteGestureGeneration) { return; }
+      this.mateTvRemoteGestureTimer = -1;
+      const active: boolean = this.mateTvRemoteInputActive();
+      this.mateTvRemotePolicy.advance(Date.now(), active, this.mateTvRemoteDeviceId, this.mateTvRemoteKeys);
+      if (!active) { this.mateTvCancelRemoteKeys(); return; }
+      this.mateTvFlushRemoteGestures();
+      this.mateTvScheduleRemoteGestures();
+    }, 20);
+  }
+
+  private mateTvCancelVoiceLearning(): void {
+    this.mateTvVoiceGeneration++;
+    this.mateTvVoiceLearning = false; this.mateTvVoiceDown = -1;
+    if (this.mateTvVoiceTimer >= 0) { clearTimeout(this.mateTvVoiceTimer); }
+    this.mateTvVoiceTimer = -1;
+  }
+
+  private mateTvStartVoiceLearning(): void {
+    this.mateTvCancelVoiceLearning();
+    if (this.mateTvRemoteDeviceId < 0) { this.mateTvVoiceStatus = '请先绑定遥控器'; return; }
+    this.mateTvVoiceLearning = true;
+    this.mateTvVoiceStatus = '按下并松开语音键';
+    const generation: number = this.mateTvVoiceGeneration;
+    this.mateTvVoiceTimer = setTimeout((): void => {
+      if (generation !== this.mateTvVoiceGeneration) { return; }
+      this.mateTvCancelVoiceLearning();
+      this.mateTvVoiceStatus = '未收到完整按键事件，可能由系统接管';
+    }, 15000);
+    this.getUIContext().getFocusController().requestFocus('MateTvVoiceLearning');
+  }
+
+  private mateTvLearnVoiceKey(event: KeyEvent): boolean {
+    if (!this.mateTvVoiceLearning || !this.mateTvDisplayOpen || event.deviceId !== this.mateTvRemoteDeviceId ||
+        !tvRemoteVoiceCandidate(event.keyCode)) { return false; }
+    if (event.type !== KeyType.Down && event.type !== KeyType.Up) { return false; }
+    event.stopPropagation();
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV voice learning code=%{public}d type=%{public}d', event.keyCode, event.type);
+    if (event.type === KeyType.Down) { this.mateTvVoiceDown = event.keyCode; return true; }
+    if (this.mateTvVoiceDown !== event.keyCode) { return true; }
+    const profile: TvRemoteKeyProfile = parseTvRemoteKeyProfile(JSON.stringify(this.mateTvRemoteKeys));
+    profile.voiceKeyCode = event.keyCode;
+    this.mateTvRemoteKeys = profile;
+    this.mateTvVoiceStatus = '已检测按键';
+    this.mateTvSaveRemoteKeys();
+    return true;
+  }
+
+  private mateTvRemoteGestureOptions(gesture: number): TvRemoteActionChoice[] {
+    const choices: TvRemoteActionChoice[] = TV_REMOTE_KEY_ACTIONS.filter((item: TvRemoteActionChoice): boolean =>
+      gesture === 0 ? (this.mateTvRemoteSelectedKey !== 5 || item.id !== 'original') : item.id !== 'original');
+    if (gesture > 0) { choices.unshift({ id: 'disabled', label: '未设置' }); }
+    return choices;
+  }
+
+  private mateTvRemoteGestureValue(gesture: number): string {
+    return (gesture === 0 ? this.mateTvRemoteKeys.actions :
+      (gesture === 1 ? this.mateTvRemoteKeys.doubleActions : this.mateTvRemoteKeys.longActions))[this.mateTvRemoteSelectedKey];
+  }
+
+  private mateTvResetRemoteKey(): void {
+    const profile: TvRemoteKeyProfile = parseTvRemoteKeyProfile(JSON.stringify(this.mateTvRemoteKeys));
+    profile.actions[this.mateTvRemoteSelectedKey] = 'original';
+    profile.doubleActions[this.mateTvRemoteSelectedKey] = 'disabled';
+    profile.longActions[this.mateTvRemoteSelectedKey] = 'disabled';
+    this.mateTvRemoteKeys = profile;
     this.mateTvSaveRemoteKeys();
   }
 
   private mateTvRouteRemoteKey(event: KeyEvent): boolean {
     if (!this.mateTvMode || (event.type !== KeyType.Down && event.type !== KeyType.Up)) { return false; }
     const down: boolean = event.type === KeyType.Down;
-    const active: boolean = this.connected && this.sessionId > 0 && this.inputForwardReady &&
-      !this.mateTvLeaving && !this.mateTvDisplayOpen && !this.mateTvTextOpen &&
-      !this.keyboardOpen && !this.keyboardImeActive && !this.remoteKeyboardModalOwnsInput() &&
-      this.remoteKeyboardForeground() && this.harmonyShortcutRemoteInputAllowed() &&
-      // The mapper owns its mapped press/release state. Unmapped events continue
-      // to the upstream owner, whose allowsPhysical() consumes the matching Up.
-      // Checking that mutable lease here would consume an ordinary key twice.
-      !this.sessionInputOwner.blocked();
+    // Read-only gate: untouched physical Down/Up must reach the upstream owner exactly once.
+    const active: boolean = this.mateTvRemoteInputActive();
     const decision: TvRemoteKeyDecision = this.mateTvRemotePolicy.route(event.keyCode,
       event.deviceId === undefined ? -1 : event.deviceId, down, active,
       this.mateTvRemoteDeviceId, this.mateTvRemoteKeys, Date.now());
     if (decision.consume) { event.stopPropagation(); }
-    if (decision.action.length > 0) { this.mateTvRunRemoteAction(decision.action); }
+    this.mateTvFlushRemoteGestures();
+    if (decision.action.length > 0 && this.mateTvRemoteInputActive()) { this.mateTvRunRemoteAction(decision.action); }
+    this.mateTvScheduleRemoteGestures();
     return decision.consume;
   }
 
   private mateTvRunRemoteAction(action: string): void {
+    if (!this.mateTvRemoteInputActive()) { return; }
+    if (action === 'open-settings') { this.mateTvOpenDisplay(); return; }
+    if (action === 'open-dictation') { this.mateTvOpenText(); return; }
+    if (action === 'toggle-fit') { this.mateTvSetViewFill(!(this.mateTvViewCanX || this.mateTvViewCanY)); return; }
     if (!this.canForwardInput('matetv-remote-key')) { return; }
+    if (action.indexOf('original:') === 0) {
+      const code: number = Number(action.substring(9));
+      if (tvRemoteDirectionIndex(code) >= 0 || code === 2067) { this.sendVirtualKeyTap(code, '原按键'); }
+      return;
+    }
     const shortcut: boolean = ['copy', 'paste', 'select-all', 'undo'].indexOf(action) >= 0;
     if (shortcut && !this.physicalKeyboardLayoutConfirmed) {
       promptAction.showToast({ message: '请先确认电脑的键盘布局', duration: 1500 });
@@ -163,7 +279,7 @@
   @Builder
   private mateTvRemoteKeySettings() {
     Column({ space: 10 }) {
-      Text('遥控器方向键 · 当前电脑').fontSize(20).fontColor('#F4F8FA').width('100%')
+      Text('遥控器按键 · 当前电脑').fontSize(20).fontColor('#F4F8FA').width('100%')
       Text(this.mateTvRemoteBindingStatus).fontSize(15).fontColor('#70E0C2').width('100%')
       Row({ space: 12 }) {
         Button(this.mateTvRemoteCapturing ? '请按遥控器的任一方向键' : '绑定遥控器')
@@ -177,22 +293,47 @@
         }
         if (this.mateTvRemoteDeviceId >= 0) {
           this.mateTvButton('解除绑定', (): void => {
-            this.mateTvRemoteKeys = { version: 1, enabled: true, fingerprint: '', deviceName: '', actions: this.mateTvRemoteKeys.actions.slice() };
+            const profile: TvRemoteKeyProfile = parseTvRemoteKeyProfile(JSON.stringify(this.mateTvRemoteKeys));
+            profile.fingerprint = ''; profile.deviceName = ''; profile.voiceKeyCode = -1;
+            this.mateTvRemoteKeys = profile; this.mateTvVoiceStatus = '未检测';
             this.mateTvSaveRemoteKeys();
             this.mateTvRemoteDevicesChanged();
           })
         }
       }.width('100%')
-      ForEach(['↑ 上', '↓ 下', '← 左', '→ 右'], (label: string, index: number): void => {
+      Row({ space: 12 }) {
+        Select(['↑ 上', '↓ 下', '← 左', '→ 右', '菜单键', '语音键'].map((label: string): SelectOption => ({ value: label })))
+          .selected(this.mateTvRemoteSelectedKey).value(['↑ 上', '↓ 下', '← 左', '→ 右', '菜单键', '语音键'][this.mateTvRemoteSelectedKey])
+          .font({ size: 18 }).layoutWeight(1)
+          .onSelect((index: number): void => {
+            if (index >= 0 && index < 6) { this.mateTvRemoteSelectedKey = index; this.mateTvCancelVoiceLearning(); }
+          })
+        this.mateTvButton('恢复本键默认', (): void => { this.mateTvResetRemoteKey(); })
+      }.width('100%')
+      if (this.mateTvRemoteSelectedKey === 5) {
+        Row({ space: 12 }) {
+          Button(this.mateTvVoiceLearning ? '请按下并松开语音键' : '检测语音键')
+            .id('MateTvVoiceLearning').fontSize(16).height(42).focusable(true)
+            .onClick((): void => { this.mateTvStartVoiceLearning(); })
+            .onKeyEvent((event: KeyEvent): boolean => this.mateTvLearnVoiceKey(event))
+          Text(this.mateTvVoiceStatus).fontSize(14).fontColor('#B1C2CA').layoutWeight(1).maxLines(2)
+        }.width('100%')
+      }
+      ForEach(['单击', '双击', '长按'], (label: string, gesture: number): void => {
         Row({ space: 16 }) {
           Text(label).fontSize(16).fontColor('#F4F8FA').width(70)
-          Select(TV_REMOTE_KEY_ACTIONS.map((item: TvRemoteActionChoice): SelectOption => ({ value: item.label })))
-            .selected(TV_REMOTE_KEY_ACTIONS.findIndex((item: TvRemoteActionChoice): boolean => item.id === this.mateTvRemoteKeys.actions[index]))
-            .value(TV_REMOTE_KEY_ACTIONS.find((item: TvRemoteActionChoice): boolean => item.id === this.mateTvRemoteKeys.actions[index])?.label ?? '原方向键')
+          Select(this.mateTvRemoteGestureOptions(gesture).map((item: TvRemoteActionChoice): SelectOption => ({ value: item.label })))
+            .selected(this.mateTvRemoteGestureOptions(gesture).findIndex((item: TvRemoteActionChoice): boolean => item.id === this.mateTvRemoteGestureValue(gesture)))
+            .value(this.mateTvRemoteGestureOptions(gesture).find((item: TvRemoteActionChoice): boolean => item.id === this.mateTvRemoteGestureValue(gesture))?.label ?? '原按键')
+            .enabled(this.mateTvRemoteSelectedKey !== 5 || this.mateTvRemoteKeys.voiceKeyCode >= 0)
             .font({ size: 16 }).onSelect((selected: number): void => {
-              if (selected >= 0 && selected < TV_REMOTE_KEY_ACTIONS.length) { this.mateTvSetRemoteAction(index, TV_REMOTE_KEY_ACTIONS[selected].id); }
+              const choices: TvRemoteActionChoice[] = this.mateTvRemoteGestureOptions(gesture);
+              if (selected >= 0 && selected < choices.length) {
+                this.mateTvSetRemoteAction(this.mateTvRemoteSelectedKey, gesture, choices[selected].id);
+              }
             })
         }.width('100%')
       }, (label: string): string => label)
+      Text('双击间隔 0.28 秒 · 长按 0.65 秒；未设置时保留原按键响应。').fontSize(14).fontColor('#B1C2CA').width('100%')
     }.width('100%')
   }

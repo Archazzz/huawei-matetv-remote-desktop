@@ -469,7 +469,7 @@ def patch_session(text: str) -> str:
         this.restoreInProgress = false;
         return;
       }''')
-    text = "import { TvRemoteActionChoice, TV_REMOTE_KEY_ACTIONS, TvRemoteKeyProfile, TvRemoteDevice, TvRemoteKeyDecision, TvRemoteKeyPolicy, defaultTvRemoteKeyProfile, parseTvRemoteKeyProfile, tvRemoteDeviceFingerprint, resolveTvRemoteDevice, tvRemoteDirectionIndex, tvRemoteActionValid, tvRemoteActionKeys } from '../services/TvRemoteKeyPolicy';\n" + text
+    text = "import { TvRemoteActionChoice, TV_REMOTE_KEY_ACTIONS, TvRemoteKeyProfile, TvRemoteDevice, TvRemoteKeyDecision, TvRemoteKeyPolicy, defaultTvRemoteKeyProfile, parseTvRemoteKeyProfile, tvRemoteDeviceFingerprint, resolveTvRemoteDevice, tvRemoteDirectionIndex, tvRemoteActionValid, tvRemoteActionKeys, tvRemoteVoiceCandidate, tvRemoteGestureActionValid } from '../services/TvRemoteKeyPolicy';\n" + text
     text = "import { TvNotificationService } from '../services/notifications/TvNotificationService';\n" + text
     text = "import { TV_COMPUTER_PRESETS, TvComputerPreset } from '../services/TvProvisionedComputers';\n" + text
     text = replace_once(text, "import { pasteboard, BusinessError } from '@kit.BasicServicesKit';",
@@ -504,6 +504,10 @@ def patch_session(text: str) -> str:
                         '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvRouteRemoteKey(event)) { return true; }\n    if (this.mateTvTextOpen || this.mateTvDisplayOpen) { return false; }\n    if (this.mateTvMode && event.keyCode === 2016) { return false; }')
     text = replace_once(text, "      this.refreshPhysicalKeyboardPresence('device-' + data.type);",
                         "      this.mateTvRemoteDevicesChanged();\n      this.refreshPhysicalKeyboardPresence('device-' + data.type);")
+    text = replace_once(text, "        hilog.info(RD_DOMAIN, RD_TAG, 'remote-input-blur target=xcomponent');",
+                        "        this.mateTvCancelRemoteKeys();\n        hilog.info(RD_DOMAIN, RD_TAG, 'remote-input-blur target=xcomponent');")
+    text = replace_once(text, '  private handleRemoteKeyboardFocusLost(source: string): void {',
+                        '  private handleRemoteKeyboardFocusLost(source: string): void {\n    this.mateTvCancelRemoteKeys();')
     text = replace_once(text, '  aboutToDisappear(): void {',
                         '  aboutToDisappear(): void {\n    this.mateTvStopJoystick();\n    this.mateTvCancelDrag();\n    this.mateTvCloseText(false);\n    this.mateTvCloseDisplay();')
     text = replace_once(text, '  private handleXComponentMouse = (event: MouseEvent): void => {',
@@ -544,7 +548,7 @@ def patch_session(text: str) -> str:
                         "  private handleXComponentAxis = (event?: AxisEvent): void => {\n    if (this.mateTvMode && event) { hilog.info(RD_DOMAIN, RD_TAG, 'MateTV axis action=' + event.action + ' tool=' + event.sourceTool + ' vertical=' + event.getVerticalAxisValue() + ' horizontal=' + event.getHorizontalAxisValue()); }")
     # Release both pending TV gestures and physical buttons across lifecycle/geometry fences.
     text = replace_once(text, '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {',
-                        '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    this.mateTvRemotePolicy.cancel();\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvResetTouchState(); this.mateTvRightMouseRelease = false; }')
+                        '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    this.mateTvCancelRemoteKeys();\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvResetTouchState(); this.mateTvRightMouseRelease = false; }')
     if text.count('.onTouch(this.handleConfiguredTouchInput)') != 2:
         raise ValueError('input surface count changed')
     text = text.replace('.onTouch(this.handleConfiguredTouchInput)',

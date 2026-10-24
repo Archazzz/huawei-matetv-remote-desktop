@@ -291,7 +291,7 @@ test('TV panel ownership is idempotent and closing retires only its own leases',
   page.sessionInputOwner = new context.Owner();
   let cancelledRemoteCaptures = 0;
   Object.assign(page, { connected: true, cleanupStarted: false, mateTvStopJoystick() {},
-    mateTvCancelRemoteCapture() { cancelledRemoteCaptures++; },
+    mateTvCancelRemoteCapture() { cancelledRemoteCaptures++; }, mateTvCancelVoiceLearning() {},
     mateTvCloseText() {}, mateTvCancelDrag() {}, releaseRustDeskInputBeforeBlock() {}, mateTvRefreshStreamStatus() {} });
   page.mateTvOpenDisplay(); page.mateTvOpenDisplay();
   page.mateTvCloseDisplay();
