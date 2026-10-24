@@ -78,7 +78,7 @@ test('external Want cannot supply a host; clicks require a live local event and 
 test('real remote page handlers wait for terminal teardown before returning home',()=>{
  const f=fixture();f.hosts.push(host());f.service.events=[event()];f.service.click('mini/event-1');
  const fragment=read('tv/fragments/notification-members.ets').replace(/  @StorageLink[^\n]*\n/,'');
- const life=read('tv/fragments/lifecycle-members.ets');const methods=life.slice(life.indexOf('  private mateTvLeaveSession()'),life.indexOf('  @Builder'));
+ const life=read('tv/fragments/lifecycle-members.ets');const methods=life.slice(life.indexOf('  private mateTvLeaveSession()'),life.indexOf('  @Builder'))+read('tv/fragments/resume-members.ets');
  vm.runInContext(compile('class TestRemote {\n'+fragment+methods+'\n}\nthis.remote=new TestRemote();'),f.box);
  const page=f.box.remote;Object.assign(page,{mateTvMode:true,mateTvLeaving:false,pendingHost:{id:'old-host'},hostId:'old-host',cleanupStarted:false,
   currentAbilityBackgroundState:()=>false,mateTvStopJoystick:()=>{},mateTvCancelDrag:()=>{},mateTvCloseText:()=>{},mateTvCloseDisplay:()=>{},disconnectAndCleanup:()=>f.calls.push(['disconnect'])});

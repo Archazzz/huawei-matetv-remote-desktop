@@ -353,7 +353,44 @@ napi_value NapiPollAudioInterruptRecovery(napi_env env, napi_callback_info info)
   pollAudioInterruptRecovery(foreground: boolean, sessionId: number): void {'''))
 
 
+def patch_tv_foreground_recovery(text: str) -> str:
+    text = replace_once(text, '  private applyAbilityBackgroundState(isBackground: boolean): void {',
+                        '  private applyAbilityBackgroundState(isBackground: boolean): void {\n'
+                        '    this.mateTvObserveLifecycle(isBackground);')
+    text = replace_once(text, '    if (!isBackground && !this.sessionViewVisible) { return; }',
+                        '    if (!isBackground && !this.sessionViewVisible) { return; }\n'
+                        '    if (!isBackground && this.mateTvResumeReconnectOnForeground()) { return; }')
+    text = replace_once(text, '    this.releaseFailedBackgroundRenderer(reason);',
+                        '    if (this.mateTvReconnectAfterRestoreFailure(sessionId, attemptId, reason)) { return; }\n'
+                        '    this.releaseFailedBackgroundRenderer(reason);')
+    start = text.index('  private async doBackgroundRestoreRender(): Promise<void> {')
+    end = text.index('  private transferRouteIdentity(): string {', start)
+    restore = text[start:end]
+    restore = replace_once(restore, "    const restoreSessionId: number = this.sessionId;",
+                           '    if (this.currentAbilityBackgroundState()) { return; }\n'
+                           '    const mateTvEpoch: number = this.mateTvResumeEpoch;\n'
+                           '    const mateTvBefore: RustDeskDiagnosticsSnapshot = this.loader.getRustDeskDiagnostics(this.sessionId);\n'
+                           "    const restoreSessionId: number = this.sessionId;")
+    restore = replace_once(restore,
+        '          const firstFrameReady: boolean = await this.waitForRustDeskFirstPresentedFrame(\n'
+        '            restoreSessionId, RUSTDESK_FIRST_FRAME_TIMEOUT_MS, restoreAttemptId);',
+        '          const firstFrameReady: boolean = this.mateTvMode ?\n'
+        '            await this.mateTvWaitForRestoredFrame(restoreSessionId, restoreAttemptId, mateTvEpoch, mateTvBefore) :\n'
+        '            await this.waitForRustDeskFirstPresentedFrame(\n'
+        '              restoreSessionId, RUSTDESK_FIRST_FRAME_TIMEOUT_MS, restoreAttemptId);\n'
+        '          if (this.mateTvMode && !this.mateTvResumeIsCurrent(restoreSessionId, restoreAttemptId, mateTvEpoch)) { return; }')
+    restore = replace_once(restore, '    } catch (err) {',
+        '    } catch (err) {\n'
+        '      if (this.mateTvMode && !this.mateTvResumeIsCurrent(restoreSessionId, restoreAttemptId, mateTvEpoch)) { return; }')
+    restore = replace_once(restore, '    this.clearCurrentAbilityBackgroundState();\n  }',
+        '    if (!this.mateTvMode || this.mateTvResumeIsCurrent(restoreSessionId, restoreAttemptId, mateTvEpoch)) {\n'
+        '      this.clearCurrentAbilityBackgroundState();\n    }\n  }')
+    text = text[:start] + restore + text[end:]
+    return text
+
+
 def patch_session(text: str) -> str:
+    text = patch_tv_foreground_recovery(text)
     text = replace_once(text, '  private restoreFromBackground(): void {',
                         '  private performForegroundRestore(): void {')
     text = replace_once(text, '    const action: RemoteDesktopBackgroundAction = decideRemoteDesktopBackgroundAction(',
@@ -376,6 +413,7 @@ def patch_session(text: str) -> str:
     members += (ROOT / 'tv/fragments/saved-login-members.ets').read_text()
     members += (ROOT / 'tv/fragments/display-members.ets').read_text()
     members += (ROOT / 'tv/fragments/lifecycle-members.ets').read_text()
+    members += (ROOT / 'tv/fragments/resume-members.ets').read_text()
     members += (ROOT / 'tv/fragments/notification-members.ets').read_text()
     members += (ROOT / 'tv/fragments/viewport-members.ets').read_text()
     members += (ROOT / 'tv/fragments/corner-controls.ets').read_text()
@@ -410,7 +448,7 @@ def patch_session(text: str) -> str:
                         '  private goBack(): void {\n    if (this.mateTvMode) { this.mateTvLeaveSession(); return; }')
     text = replace_once(text,
                         "      this.windowCloseResolve?.(); this.windowCloseResolve = null;\n      hilog.info(RD_DOMAIN, RD_TAG, '[RDP-SHUTDOWN] phase=arkts-return elapsedMs=' +",
-                        "      this.windowCloseResolve?.(); this.windowCloseResolve = null;\n      this.mateTvFinishLeave();\n      hilog.info(RD_DOMAIN, RD_TAG, '[RDP-SHUTDOWN] phase=arkts-return elapsedMs=' +")
+                        "      this.windowCloseResolve?.(); this.windowCloseResolve = null;\n      this.mateTvFinishResumeReconnect();\n      this.mateTvFinishLeave();\n      hilog.info(RD_DOMAIN, RD_TAG, '[RDP-SHUTDOWN] phase=arkts-return elapsedMs=' +")
     text = replace_once(text,
                         ".width(this.shouldShowRustDeskMultiCanvasPreview() ? '50%' : '100%').height('100%')",
                         ".width(this.mateTvTextOpen ? '68%' : (this.shouldShowRustDeskMultiCanvasPreview() ? '50%' : '100%')).height('100%')")

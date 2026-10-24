@@ -13,7 +13,7 @@ const wheelPolicy = read('.work/client/entry/src/main/ets/services/RemoteWheelPo
 const wheelDirection = wheelPolicy.slice(wheelPolicy.indexOf('export function applyRemoteWheelDirection('), wheelPolicy.indexOf('\n}', wheelPolicy.indexOf('export function applyRemoteWheelDirection(')) + 2);
 const scrollPolicy = read('.work/client/entry/src/main/ets/services/RemoteScrollPolicy.ets');
 const fragment = read('tv/fragments/session-members.ets').split('  @Builder')[0];
-const lifecycle = read('tv/fragments/lifecycle-members.ets').split('  @Builder')[0];
+const lifecycle = read('tv/fragments/lifecycle-members.ets').split('  @Builder')[0] + read('tv/fragments/resume-members.ets');
 const transaction = session.slice(session.indexOf('  private clearPhysicalMouseClickTransaction()'),
   session.indexOf('  /**\n   * Native CONNECTED'));
 function create(layout = 'macos') {

@@ -32,6 +32,7 @@
   }
 
   private mateTvLeaveSession(): void {
+    this.mateTvCancelResumeReconnect();
     this.mateTvStopJoystick();
     if (this.mateTvLeaving) { return; }
     this.mateTvCancelDrag();
