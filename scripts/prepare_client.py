@@ -64,6 +64,10 @@ def patch_session(text: str) -> str:
                         '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen) { return false; }')
     text = replace_once(text, '  aboutToDisappear(): void {',
                         '  aboutToDisappear(): void {\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();')
+    text = replace_once(text, '  private handleXComponentMouse = (event: MouseEvent): void => {',
+                        '  private handleXComponentMouse = (event: MouseEvent): void => {\n    if (this.mateTvObserveMouse(event)) { return; }')
+    text = replace_once(text, "message: '远端未开放输入控制，请在被控手机开启 RustDesk 输入控制/无障碍权限',",
+                        "message: '电脑端尚未允许控制，请检查 RustDesk 当前连接的键盘鼠标权限及系统辅助功能授权',")
     # TV remote uses normalized click/pan. Ignore synthesized touch to avoid a
     # second click; actual mouse and keyboard continue through upstream handlers.
     if text.count('.onTouch(this.handleConfiguredTouchInput)') != 2:
