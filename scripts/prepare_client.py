@@ -352,7 +352,7 @@ def main():
         data = json.loads(resource.read_text())
         for item in data.get('string', []):
             if item['name'] == 'app_name':
-                item['value'] = 'MateTV Remote'
+                item['value'] = '屏间 · ScreenLink'
         resource.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
     # Upstream excludes local build profiles. Restore the reviewed module template.
     template = dest / 'entry/build-profile.json5.bak-freerdp'

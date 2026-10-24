@@ -1,4 +1,4 @@
-# Huawei MateTV Remote Desktop
+# 屏间 · ScreenLink
 
 在 HarmonyOS MateTV 上查看和控制自己的 Mac、Windows 电脑。电视端采用原生 ArkUI，桌面端使用 RustDesk；外网连接可以复用已有的 Tailscale 网络。
 

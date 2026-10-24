@@ -18,6 +18,7 @@ struct TvHome {
   @State private address: string = '';
   @State private port: string = '21118';
   @State private saving: boolean = false;
+  @State private focusedComputer: string = '';
   private service: HostSyncService = HostSyncService.getInstance();
   private generation: number = 0;
 
@@ -101,14 +102,65 @@ struct TvHome {
       .onClick(callback)
   }
 
+  private computerArt(host: RemoteHost): Resource | null {
+    const name: string = host.label.toLowerCase();
+    if (name.includes('book')) { return $r('app.media.device_macbook'); }
+    if (name.includes('studio')) { return $r('app.media.device_mac_studio'); }
+    if (name.includes('mini')) { return $r('app.media.device_mac_mini'); }
+    if (name.includes('windows') || /(^|[^a-z])pc([^a-z]|$)/.test(name)) { return $r('app.media.device_windows_pc'); }
+    return null;
+  }
+
+  @Builder
+  private headerAction(symbol: Resource, label: string, callback: () => void) {
+    Button({ type: ButtonType.Normal }) {
+      Row({ space: 8 }) {
+        SymbolGlyph(symbol).fontSize(20).fontColor(['#B5DBD3']).hitTestBehavior(HitTestMode.None)
+        Text(label).fontSize(17).fontColor('#EAF2F3').hitTestBehavior(HitTestMode.None)
+      }.padding({ left: 16, right: 16 })
+    }.height(48).backgroundColor('#243640').borderRadius(12)
+      .accessibilityText(label).onClick(callback)
+  }
+
+  @Builder
+  private computerCard(host: RemoteHost) {
+    Button({ type: ButtonType.Normal }) {
+      Row({ space: 14 }) {
+        if (this.computerArt(host) !== null) {
+          Image(this.computerArt(host) as Resource).width('52%').height('100%')
+            .objectFit(ImageFit.Contain).hitTestBehavior(HitTestMode.None)
+        } else {
+          SymbolGlyph($r('sys.symbol.rectangle_on_rectangle')).fontSize(72).fontColor(['#70E0C2'])
+            .width('52%').hitTestBehavior(HitTestMode.None)
+        }
+        Column({ space: 12 }) {
+          Text(host.label).fontSize(26).fontWeight(FontWeight.Medium).fontColor('#F4F8FA')
+            .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(host.rustdeskDirectEnabled ? '直接连接' : '中继连接')
+            .fontSize(15).fontColor('#AFC4CC')
+        }.alignItems(HorizontalAlign.Start).layoutWeight(1).padding({ right: 20 })
+          .hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
+      }.width('100%').height('100%').hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
+    }.width('100%').height(230).backgroundColor('#182833').borderRadius(20)
+      .border({ width: 2, color: this.focusedComputer === host.id ? '#70E0C2' : '#2A414D' })
+      .accessibilityText(host.label).enabled(!this.opening)
+      .onFocus((): void => { this.focusedComputer = host.id; })
+      .onBlur((): void => { if (this.focusedComputer === host.id) { this.focusedComputer = ''; } })
+      .onClick((): void => { this.openComputer(host); })
+  }
+
   build() {
     Column({ space: 24 }) {
       Row() {
         Column({ space: 8 }) {
-          Text('MateTV Remote').fontSize(18).fontColor('#70E0C2')
-          Text('你的电脑，就在大屏上').fontSize(36).fontWeight(FontWeight.Medium).fontColor('#F4F8FA')
+          Text('屏间 · ScreenLink').fontSize(30).fontWeight(FontWeight.Medium).fontColor('#F4F8FA')
+          Text('你的电脑，就在大屏上').fontSize(16).fontColor('#AFC4CC')
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-        this.action('输入设备测试', (): void => { router.pushUrl({ url: 'pages/TvInputLab' }); })
+        Row({ space: 10 }) {
+          this.headerAction($r('sys.symbol.plus'), '添加电脑', (): void => { if (this.ready) { this.editing = true; } })
+          this.headerAction($r('sys.symbol.gearshape_fill'), '管理高级连接', (): void => { router.pushUrl({ url: 'pages/HostListPage' }); })
+          this.headerAction($r('sys.symbol.rectangle_on_rectangle'), '输入设备测试', (): void => { router.pushUrl({ url: 'pages/TvInputLab' }); })
+        }
       }.width('100%')
       if (this.error !== '') {
         Row({ space: 16 }) {
@@ -147,32 +199,18 @@ struct TvHome {
                   .fontSize(22).fontColor('#B1C2CA').textAlign(TextAlign.Center)
               }.padding(48).width('100%').backgroundColor('#192A34').borderRadius(16)
             }
-            ForEach(this.computers, (host: RemoteHost) => {
-              Button({ type: ButtonType.Normal }) {
-                Row({ space: 24 }) {
-                  Column({ space: 8 }) {
-                    Text(host.label).fontSize(28).fontColor('#F4F8FA')
-                    Text(host.rustdeskDirectEnabled ? '直接连接' : '通过中继连接')
-                      .fontSize(18).fontColor('#B1C2CA')
-                  }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-                  Text('连接').fontSize(24).fontColor('#70E0C2')
-                }.padding(28).width('100%')
-              }.width('100%').backgroundColor('#192A34').borderRadius(16)
-                .enabled(!this.opening).onClick((): void => { this.openComputer(host); })
-            }, (host: RemoteHost): string => host.id)
+            Grid() {
+              ForEach(this.computers, (host: RemoteHost): void => {
+                GridItem() { this.computerCard(host) }
+              }, (host: RemoteHost): string => host.id)
+            }.columnsTemplate('1fr 1fr').columnsGap(18).rowsGap(18)
+              .width('100%').height(Math.ceil(this.computers.length / 2) * 248)
+
           }.width('100%')
         }.layoutWeight(1).width('100%')
-        Row({ space: 16 }) {
-          Button('添加电脑', { type: ButtonType.Normal }).fontSize(22).height(56)
-            .padding({ left: 28, right: 28 }).borderRadius(12).fontColor('#10251E')
-            .backgroundColor('#70E0C2').enabled(this.ready)
-            .onClick((): void => { this.editing = true; })
-          this.action('管理与高级连接', (): void => { router.pushUrl({ url: 'pages/HostListPage' }); })
-          Blank()
-          Text('遥控器 · 触控平板 · 蓝牙键鼠').fontSize(18).fontColor('#B1C2CA')
-        }.width('100%')
+
       }
-    }.width('100%').height('100%').padding(40).backgroundColor('#101C25')
+    }.width('100%').height('100%').padding(32).backgroundColor('#101C25')
       .alignItems(HorizontalAlign.Start)
   }
 }
