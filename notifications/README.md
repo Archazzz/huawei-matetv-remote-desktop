@@ -1,6 +1,6 @@
 # 通知中转原型
 
-这是独立的 TLS 消息中转及手工样例工具，不采集 Codex、微信或系统通知。它不修改 RustDesk 转发，不自启、不主动向电视发送消息。电视接收客户端、真实通知来源、系统后台推送是独立部分；本目录不能单独满足完整通知同步需求。
+这是独立的 TLS 消息中转及手工样例工具，中转本体不采集应用内容。Codex 原生完成事件由独立的 `codex_hook.py` 接入，参见 [配置说明](../docs/codex-notification-hook.md)。电视端已有前台接收、收件箱和点击连接；普通微信采集与电视后台推送尚未完成。它不修改 RustDesk 转发，也不会在导入时启动服务。
 
 ## 配置与操作
 
@@ -61,3 +61,9 @@ python3 -m notifications.cli --config local/notifications.json syntheticpublish 
 ## 验证边界
 
 `python3 -m unittest discover -s tests -p 'test_notifications.py'` 在内存验证请求，不打开监听端口、不接触电视。TLS 服务配置检查、真实证书信任、实机部署及端到端通知交互需要后续独立验收。
+
+## Mac 登录启动
+
+`deployment/io.github.archazzz.screenlink-notifications.plist.example` 提供独立 LaunchAgent 模板。替换 Python、项目和配置的绝对路径，安装到当前用户的 `~/Library/LaunchAgents/` 后，用 `launchctl bootstrap gui/$(id -u) <plist绝对路径>` 加载。先停止同一端口的手动服务，避免两个进程争用端口；无需管理员权限。
+
+该服务只在用户登录期间运行，休眠／离线时不会投递。重启后的内存收件箱为空，电视通过 streamId 变化重新同步；电视本地已有的未过期记录继续保留。它不是后台 PushKit 的替代品。
