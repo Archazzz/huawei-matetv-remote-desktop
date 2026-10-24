@@ -154,6 +154,7 @@
   }
 
   private mateTvOpenText(): void {
+    this.mateTvCloseViewport();
     if (!this.canForwardInput('matetv-open-text')) { return; }
     this.mateTvCancelDrag();
     this.dismissKeyboard();
@@ -169,12 +170,14 @@
       ui.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     } catch (_error) {}
     this.mateTvTextOpen = true;
+    this.resetCanvasToDisplayDefault();
   }
 
   private mateTvCloseText(): void {
     const wasOpen: boolean = this.mateTvTextOpen;
     this.mateTvTextFocusGeneration++;
     this.mateTvTextOpen = false;
+    if (wasOpen && this.connected && !this.cleanupStarted) { this.resetCanvasToDisplayDefault(); }
     this.mateTvText = '';
     this.mateTvTextError = '';
     this.mateTvTextSession = -1;
@@ -249,6 +252,7 @@
     Column({ space: 8 }) {
       Row({ space: 8 }) {
         this.mateTvButton('切换电脑', (): void => { this.goBack(); })
+        this.mateTvButton('移动画面', (): void => { this.mateTvOpenViewport(); })
         this.mateTvButton('显示器 / 画质', (): void => { this.mateTvOpenDisplay(); })
         Button(this.mateTvRightClick ? '点选位置右击' : '右键', { type: ButtonType.Normal })
           .fontSize(16).height(38).padding({ left: 14, right: 14 }).borderRadius(10)

@@ -65,16 +65,17 @@ def patch_session(text: str) -> str:
     members += (ROOT / 'tv/fragments/saved-login-members.ets').read_text()
     members += (ROOT / 'tv/fragments/display-members.ets').read_text()
     members += (ROOT / 'tv/fragments/lifecycle-members.ets').read_text()
+    members += (ROOT / 'tv/fragments/viewport-members.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
-                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { return false; }')
+                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvViewportOpen || this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { return false; }')
     text = replace_once(text,
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            this.openRustDeskAuthSheet();",
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            if (!this.mateTvTrySavedPassword()) { this.openRustDeskAuthSheet(); }")
     text = replace_once(text, '  private handleXComponentKey = (event: KeyEvent): boolean => {',
-                        '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen || this.mateTvDisplayOpen) { return false; }\n    if (this.mateTvConfirmKey(event)) { return true; }')
+                        '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvViewportOpen || this.mateTvTextOpen || this.mateTvDisplayOpen) { return false; }\n    if (this.mateTvConfirmKey(event)) { return true; }')
     text = replace_once(text, '  aboutToDisappear(): void {',
-                        '  aboutToDisappear(): void {\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();\n    this.mateTvCloseDisplay();')
+                        '  aboutToDisappear(): void {\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();\n    this.mateTvCloseDisplay();\n    this.mateTvCloseViewport();')
     text = replace_once(text, '  private handleXComponentMouse = (event: MouseEvent): void => {',
                         '  private handleXComponentMouse = (event: MouseEvent): void => {\n    if (this.mateTvObserveMouse(event)) { return; }')
     text = replace_once(text, "message: '远端未开放输入控制，请在被控手机开启 RustDesk 输入控制/无障碍权限',",
@@ -84,7 +85,7 @@ def patch_session(text: str) -> str:
     text = replace_once(text, "            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');",
                         "            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
     text = replace_once(text, '  onBackPress(): boolean {',
-                        '  onBackPress(): boolean {\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }\n    if (this.mateTvMode) { if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.goBack(); } return true; }')
+                        '  onBackPress(): boolean {\n    if (this.mateTvViewportOpen) { this.mateTvCloseViewport(); return true; }\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }\n    if (this.mateTvMode) { if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.goBack(); } return true; }')
     text = replace_once(text, '  private goBack(): void {',
                         '  private goBack(): void {\n    if (this.mateTvMode) { this.mateTvLeaveSession(); return; }')
     text = replace_once(text,
@@ -96,6 +97,14 @@ def patch_session(text: str) -> str:
     text = replace_once(text,
                         ".align(this.shouldShowRustDeskMultiCanvasPreview() ? Alignment.Start : Alignment.Center)",
                         ".align(this.mateTvTextOpen || this.shouldShowRustDeskMultiCanvasPreview() ? Alignment.Start : Alignment.Center)")
+    text = replace_once(text, '  private currentCanvasDisplayDefault(viewport: CanvasViewport): CanvasTransform {',
+                        "  private currentCanvasDisplayDefault(viewport: CanvasViewport): CanvasTransform {\n    if (this.mateTvMode) { return baseCanvasTransform(this.mateTvTextOpen || !this.mateTvViewFill ? 'fit' : 'fill', 100, viewport, this.canvasRotationQuarterTurns); }")
+    text = replace_once(text, '    this.updateRendererViewportCacheForCanvasTransform(viewport);',
+                        '    this.updateRendererViewportCacheForCanvasTransform(viewport);\n    this.mateTvSyncViewport(viewport);')
+    for method in ['applyRemotePointerCanvasFollow(remoteX: number, remoteY: number)',
+                   'updatePhysicalPointerCanvasFollow(localX: number, localY: number)']:
+        text = replace_once(text, '  private ' + method + ': void {',
+                            '  private ' + method + ': void {\n    if (this.mateTvMode) { return; }')
     # Preserve physical press duration; no pickup/drop mode or single-finger pan remapping.
     text = replace_once(text, '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {',
                         '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvTouchId = -1; this.mateTvTouchButton = -1; this.mateTvRightMouseRelease = false; }')
@@ -112,6 +121,9 @@ def patch_session(text: str) -> str:
     anchor = '      // Keep the file-transfer sheet on its own host.'
     addition = '''      if (this.mateTvMode && this.connected) {
         this.mateTvToolbar()
+      }
+      if (this.mateTvMode && this.connected && this.mateTvViewportOpen) {
+        this.mateTvViewportPanel()
       }
       if (this.mateTvMode && this.mateTvLeaving) {
         Stack() { this.mateTvLeavingPanel() }
