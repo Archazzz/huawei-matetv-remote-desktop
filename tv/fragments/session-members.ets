@@ -20,7 +20,6 @@
   @State private mateTvTextError: string = '';
   private mateTvTextSession: number = -1;
   private mateTvTextAttempt: number = -1;
-  private mateTvTextFocusGeneration: number = 0;
   private mateTvTextAvoidMode: KeyboardAvoidMode | null = null;
 
   private mateTvObserveMouse(event: MouseEvent): boolean {
@@ -207,7 +206,6 @@
     if (!this.canForwardInput('matetv-open-text')) { return; }
     this.mateTvCancelDrag();
     this.dismissKeyboard();
-    this.mateTvTextFocusGeneration++;
     this.mateTvTextSession = this.sessionId;
     this.mateTvTextAttempt = this.connectAttemptId;
     this.mateTvText = '';
@@ -224,7 +222,6 @@
 
   private mateTvCloseText(): void {
     const wasOpen: boolean = this.mateTvTextOpen;
-    this.mateTvTextFocusGeneration++;
     this.mateTvTextOpen = false;
     if (wasOpen && this.connected && !this.cleanupStarted) { this.resetCanvasToDisplayDefault(); }
     this.mateTvText = '';
@@ -246,24 +243,6 @@
       this.getUIContext().getFocusController().requestFocus('MateTvTextDraft');
     } catch (_error) {
       hilog.warn(RD_DOMAIN, RD_TAG, 'MateTV draft focus request unavailable');
-    }
-  }
-
-  private async mateTvSetKeyboardVisible(visible: boolean): Promise<void> {
-    if (!this.mateTvTextOpen) { return; }
-    const generation: number = this.mateTvTextFocusGeneration;
-    this.mateTvFocusText();
-    try {
-      const controller = inputMethod.getController();
-      if (visible) { await controller.showTextInput(); } else { await controller.hideTextInput(); }
-      if (!this.mateTvTextOpen || generation !== this.mateTvTextFocusGeneration) { return; }
-      if (!visible) { this.mateTvFocusText(); }
-      this.mateTvTextError = '';
-      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV system keyboard requested visible=' + visible.toString());
-    } catch (_error) {
-      if (this.mateTvTextOpen && generation === this.mateTvTextFocusGeneration) {
-        this.mateTvTextError = '键盘状态未能切换，请直接点输入框唤起键盘。';
-      }
     }
   }
 
@@ -301,37 +280,32 @@
   private mateTvTextPanel() {
     Column({ space: 12 }) {
       Row() {
-        Text('输入到电脑').fontSize(20).fontColor('#F4F8FA').layoutWeight(1)
-        Button('关闭', { type: ButtonType.Normal }).fontSize(15).height(32)
-          .backgroundColor('#243640').fontColor('#F4F8FA').borderRadius(8)
+        Text('听写').fontSize(17).fontColor('#F4F8FA').layoutWeight(1)
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(15).fontColor(['#B1C2CA'])
+            .hitTestBehavior(HitTestMode.None)
+        }.width(32).height(32).backgroundColor('#243640')
+          .accessibilityText('关闭听写')
           .onClick((): void => { this.mateTvCloseText(); })
       }.width('100%')
-      Text('键盘显示时长按语音键听写，确认后输入到电脑。')
-        .fontSize(15).fontColor('#B1C2CA').width('100%')
-      TextArea({ text: this.mateTvText, placeholder: '输入或听写…' })
-        .id('MateTvTextDraft').height(90).width('100%').fontSize(18).maxLength(8000)
+      TextArea({ text: this.mateTvText, placeholder: '输入或语音听写' })
+        .id('MateTvTextDraft').height(96).width('100%').fontSize(17).maxLength(8000)
+        .fontColor('#F4F8FA').placeholderColor('#8DA6B0').backgroundColor('#101C25')
+        .borderRadius(10).padding(12)
         .enableKeyboardOnFocus(true)
         .onAppear((): void => { this.mateTvFocusText(); })
         .onFocus((): void => { hilog.info(RD_DOMAIN, RD_TAG, 'MateTV draft focused'); })
         .onChange((value: string): void => { this.mateTvText = value; })
-      Row({ space: 10 }) {
-        Button('显示键盘', { type: ButtonType.Normal }).fontSize(15).height(32)
-          .backgroundColor('#243640').fontColor('#F4F8FA').borderRadius(8)
-          .focusOnTouch(false)
-          .onClick((): void => { void this.mateTvSetKeyboardVisible(true); })
-        Button('收起键盘', { type: ButtonType.Normal }).fontSize(15).height(32)
-          .backgroundColor('#243640').fontColor('#F4F8FA').borderRadius(8)
-          .focusOnTouch(false)
-          .onClick((): void => { void this.mateTvSetKeyboardVisible(false); })
-      }
       if (this.mateTvTextError !== '') {
-        Text(this.mateTvTextError).fontSize(15).fontColor('#FFD4B5').width('100%')
+        Text(this.mateTvTextError).fontSize(14).fontColor('#FFD4B5').width('100%')
       }
-      Button('输入到电脑', { type: ButtonType.Normal })
-        .width('100%').height(38).fontSize(16).borderRadius(9)
-        .backgroundColor('#386D61').fontColor('#F4F8FA').enabled(this.mateTvText.length > 0)
-        .onClick((): void => { this.mateTvSubmitText(); })
-      Text('不会自动按回车').fontSize(13).fontColor('#B1C2CA')
-    }.width(340).constraintSize({ maxWidth: '44%' }).padding(18)
+      Row() {
+        Blank()
+        Button('发送', { type: ButtonType.Normal })
+          .width(80).height(36).fontSize(16).borderRadius(9)
+          .backgroundColor('#386D61').fontColor('#F4F8FA').enabled(this.mateTvText.length > 0)
+          .onClick((): void => { this.mateTvSubmitText(); })
+      }.width('100%')
+    }.width(320).constraintSize({ maxWidth: '32%' }).padding(16)
       .backgroundColor('#F5192A34').borderRadius(14).margin({ top: 16, right: 20 })
   }
