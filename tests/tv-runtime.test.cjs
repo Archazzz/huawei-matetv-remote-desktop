@@ -354,7 +354,7 @@ for (const layout of ['macos', 'windows']) {
   });
 }
 
-test('Unified dock migrates preferences, keeps one corner and previews the actual controls', () => {
+test('Unified dock migrates preferences and keeps the actual controls in one corner', () => {
   const saved = new Map([['mateTvToolsCorner', 1], ['mateTvToolsHorizontal', true]]);
   const context = vm.createContext({ preferences: { getPreferencesSync() { return {
     getSync(key, fallback) { return saved.has(key) ? saved.get(key) : fallback; },
@@ -398,9 +398,6 @@ test('Unified dock migrates preferences, keeps one corner and previews the actua
       page.mateTvViewCanX = !overflow; // same small buttons, joystick visibility changes
       assert.equal(page.mateTvDockX(), x); assert.equal(page.mateTvDockY(), y);
       page.mateTvViewCanX = overflow;
-      const previewW = horizontal ? page.mateTvSmallLabels().length * 48 - 6 : 42;
-      const previewH = horizontal ? 24 : page.mateTvSmallLabels().length * 30 - 6;
-      assert.ok(page.mateTvPreviewX() + previewW <= 360 && page.mateTvPreviewY() + previewH <= 172);
     }
   }
   assert.deepEqual(Array.from(page.mateTvControlLabels()), ['设置', '缩小', '切屏', '听写', '摇杆']);

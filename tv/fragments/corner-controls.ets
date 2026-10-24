@@ -76,16 +76,6 @@
     return this.mateTvControlsCorner < 2 ? 24 : Math.max(12, this.mateTvControlsHeight - 24 - this.mateTvDockHeight());
   }
 
-  private mateTvPreviewX(): number {
-    const width: number = this.mateTvControlsHorizontal ? this.mateTvSmallLabels().length * 48 - 6 : 42;
-    return this.mateTvControlsCorner % 2 === 1 ? 352 - width : 8;
-  }
-
-  private mateTvPreviewY(): number {
-    const height: number = this.mateTvControlsHorizontal ? 24 : this.mateTvSmallLabels().length * 30 - 6;
-    return this.mateTvControlsCorner < 2 ? 8 : 164 - height;
-  }
-
   private mateTvSmallLabels(): string[] {
     return this.mateTvControlLabels().filter((label: string): boolean => label !== '摇杆');
   }
@@ -102,16 +92,6 @@
       return this.mateTvControlsCorner < 2 ? 24 : this.mateTvControlsHeight - 24 - 112;
     }
     return this.mateTvControlsCorner < 2 ? this.mateTvDockY() + 60 : this.mateTvDockY() - 124;
-  }
-
-  private mateTvPreviewJoystickX(): number {
-    if (this.mateTvControlsHorizontal) { return this.mateTvControlsCorner % 2 === 1 ? 322 : 8; }
-    return this.mateTvControlsCorner % 2 === 1 ? this.mateTvPreviewX() - 36 : this.mateTvPreviewX() + 48;
-  }
-
-  private mateTvPreviewJoystickY(): number {
-    if (!this.mateTvControlsHorizontal) { return this.mateTvControlsCorner < 2 ? 8 : 134; }
-    return this.mateTvControlsCorner < 2 ? this.mateTvPreviewY() + 30 : this.mateTvPreviewY() - 36;
   }
 
   @Builder
@@ -150,63 +130,4 @@
         .width(112).height(112)
         .position({ x: this.mateTvDockJoystickX(), y: this.mateTvDockJoystickY() }).zIndex(150)
     }
-  }
-
-  @Builder
-  private mateTvPositionOption(corner: number, title: string) {
-    Button(title, { type: ButtonType.Normal }).fontSize(16).fontColor('#F4F8FA')
-      .height(38).padding({ left: 18, right: 18 }).borderRadius(8)
-      .backgroundColor(this.mateTvControlsCorner === corner ? '#386D61' : '#243640')
-      .accessibilityText(title + (this.mateTvControlsCorner === corner ? '，已选择' : ''))
-      .onClick((): void => { this.mateTvSaveControls(corner, this.mateTvControlsHorizontal); })
-  }
-
-  @Builder
-  private mateTvDirectionOption(horizontal: boolean, title: string) {
-    Button(title, { type: ButtonType.Normal }).fontSize(16).fontColor('#F4F8FA')
-      .height(38).padding({ left: 18, right: 18 }).borderRadius(8)
-      .backgroundColor(this.mateTvControlsHorizontal === horizontal ? '#386D61' : '#243640')
-      .accessibilityText(title + (this.mateTvControlsHorizontal === horizontal ? '，已选择' : ''))
-      .onClick((): void => { this.mateTvSaveControls(this.mateTvControlsCorner, horizontal); })
-  }
-
-  @Builder
-  private mateTvPreviewItems() {
-    ForEach(this.mateTvSmallLabels(), (label: string): void => {
-      Text(label).fontSize(12).fontColor('#EDF8F5').textAlign(TextAlign.Center)
-        .width(42).height(24).backgroundColor(label === '摇杆' ? '#386D61' : '#354C58').borderRadius(6)
-    }, (label: string): string => label)
-  }
-
-  @Builder
-  private mateTvControlLayoutOptions() {
-    Row({ space: 12 }) {
-      Text('位置').fontSize(16).fontColor('#B1C2CA')
-      this.mateTvPositionOption(0, '左上')
-      this.mateTvPositionOption(1, '右上')
-      this.mateTvPositionOption(2, '左下')
-      this.mateTvPositionOption(3, '右下')
-    }
-    Row({ space: 12 }) {
-      Text('排列').fontSize(16).fontColor('#B1C2CA')
-      this.mateTvDirectionOption(true, '横向')
-      this.mateTvDirectionOption(false, '纵向')
-    }
-    Stack({ alignContent: Alignment.TopStart }) {
-      Rect().width(360).height(172).radius(10).fill('#101C25').stroke('#48606A').strokeWidth(1)
-      if (this.mateTvControlsHorizontal) {
-        Row({ space: 6 }) { this.mateTvPreviewItems() }
-          .position({ x: this.mateTvPreviewX(), y: this.mateTvPreviewY() })
-      } else {
-        Column({ space: 6 }) { this.mateTvPreviewItems() }
-          .position({ x: this.mateTvPreviewX(), y: this.mateTvPreviewY() })
-      }
-      if (this.mateTvViewCanX || this.mateTvViewCanY) {
-        Text('摇杆').fontSize(10).fontColor('#EDF8F5').textAlign(TextAlign.Center)
-          .width(30).height(30).backgroundColor('#386D61').borderRadius(15)
-          .position({ x: this.mateTvPreviewJoystickX(), y: this.mateTvPreviewJoystickY() })
-      }
-    }.width(360).height(172).hitTestBehavior(HitTestMode.None)
-    Text('当前 ' + this.mateTvControlLabels().length.toString() + ' 个控件 · ' + this.mateTvControlLabels().join(' → '))
-      .fontSize(14).fontColor('#B1C2CA').width('100%')
   }
