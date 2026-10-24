@@ -44,16 +44,16 @@
   }
 
   private mateTvDockLength(): number {
-    const count: number = this.mateTvControlLabels().length;
-    return count * 48 + (count - 1) * 10 + (this.mateTvViewCanX || this.mateTvViewCanY ? 64 : 0);
+    const count: number = this.mateTvSmallLabels().length;
+    return count * 48 + (count - 1) * 10;
   }
 
   private mateTvDockWidth(): number {
-    return this.mateTvControlsHorizontal ? this.mateTvDockLength() : (this.mateTvViewCanX || this.mateTvViewCanY ? 112 : 48);
+    return this.mateTvControlsHorizontal ? this.mateTvDockLength() : 48;
   }
 
   private mateTvDockHeight(): number {
-    return this.mateTvControlsHorizontal ? (this.mateTvViewCanX || this.mateTvViewCanY ? 112 : 48) : this.mateTvDockLength();
+    return this.mateTvControlsHorizontal ? 48 : this.mateTvDockLength();
   }
 
   private mateTvDockX(): number {
@@ -65,13 +65,41 @@
   }
 
   private mateTvPreviewX(): number {
-    const width: number = this.mateTvControlsHorizontal ? this.mateTvControlLabels().length * 48 - 6 : 42;
+    const width: number = this.mateTvControlsHorizontal ? this.mateTvSmallLabels().length * 48 - 6 : 42;
     return this.mateTvControlsCorner % 2 === 1 ? 352 - width : 8;
   }
 
   private mateTvPreviewY(): number {
-    const height: number = this.mateTvControlsHorizontal ? 24 : this.mateTvControlLabels().length * 30 - 6;
+    const height: number = this.mateTvControlsHorizontal ? 24 : this.mateTvSmallLabels().length * 30 - 6;
     return this.mateTvControlsCorner < 2 ? 8 : 164 - height;
+  }
+
+  private mateTvSmallLabels(): string[] {
+    return this.mateTvControlLabels().filter((label: string): boolean => label !== '摇杆');
+  }
+
+  private mateTvDockJoystickX(): number {
+    if (this.mateTvControlsHorizontal) {
+      return this.mateTvControlsCorner % 2 === 1 ? this.surfaceWidth - 24 - 112 : 24;
+    }
+    return this.mateTvControlsCorner % 2 === 1 ? this.mateTvDockX() - 124 : this.mateTvDockX() + 60;
+  }
+
+  private mateTvDockJoystickY(): number {
+    if (!this.mateTvControlsHorizontal) {
+      return this.mateTvControlsCorner < 2 ? 24 : this.surfaceHeight - 24 - 112;
+    }
+    return this.mateTvControlsCorner < 2 ? this.mateTvDockY() + 60 : this.mateTvDockY() - 124;
+  }
+
+  private mateTvPreviewJoystickX(): number {
+    if (this.mateTvControlsHorizontal) { return this.mateTvControlsCorner % 2 === 1 ? 322 : 8; }
+    return this.mateTvControlsCorner % 2 === 1 ? this.mateTvPreviewX() - 36 : this.mateTvPreviewX() + 48;
+  }
+
+  private mateTvPreviewJoystickY(): number {
+    if (!this.mateTvControlsHorizontal) { return this.mateTvControlsCorner < 2 ? 8 : 134; }
+    return this.mateTvControlsCorner < 2 ? this.mateTvPreviewY() + 30 : this.mateTvPreviewY() - 36;
   }
 
   @Builder
@@ -94,7 +122,6 @@
       this.mateTvIcon($r('sys.symbol.rectangle_on_rectangle'), '切换到下一块显示器', (): void => { this.mateTvNextDisplay(); })
     }
     this.mateTvIcon($r('sys.symbol.mic_fill'), '文字与听写', (): void => { this.mateTvOpenText(); })
-    this.mateTvViewportDock()
   }
 
   @Builder
@@ -105,6 +132,11 @@
     } else {
       Column({ space: 10 }) { this.mateTvControlIcons() }
         .position({ x: this.mateTvDockX(), y: this.mateTvDockY() }).zIndex(150)
+    }
+    if (this.mateTvViewCanX || this.mateTvViewCanY) {
+      Row() { this.mateTvViewportDock() }
+        .width(112).height(112)
+        .position({ x: this.mateTvDockJoystickX(), y: this.mateTvDockJoystickY() }).zIndex(150)
     }
   }
 
@@ -128,7 +160,7 @@
 
   @Builder
   private mateTvPreviewItems() {
-    ForEach(this.mateTvControlLabels(), (label: string): void => {
+    ForEach(this.mateTvSmallLabels(), (label: string): void => {
       Text(label).fontSize(12).fontColor('#EDF8F5').textAlign(TextAlign.Center)
         .width(42).height(24).backgroundColor(label === '摇杆' ? '#386D61' : '#354C58').borderRadius(6)
     }, (label: string): string => label)
@@ -156,6 +188,11 @@
       } else {
         Column({ space: 6 }) { this.mateTvPreviewItems() }
           .position({ x: this.mateTvPreviewX(), y: this.mateTvPreviewY() })
+      }
+      if (this.mateTvViewCanX || this.mateTvViewCanY) {
+        Text('摇杆').fontSize(10).fontColor('#EDF8F5').textAlign(TextAlign.Center)
+          .width(30).height(30).backgroundColor('#386D61').borderRadius(15)
+          .position({ x: this.mateTvPreviewJoystickX(), y: this.mateTvPreviewJoystickY() })
       }
     }.width(360).height(172).hitTestBehavior(HitTestMode.None)
     Text('当前 ' + this.mateTvControlLabels().length.toString() + ' 个控件 · ' + this.mateTvControlLabels().join(' → '))
