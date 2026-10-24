@@ -116,6 +116,7 @@ vm.runInContext(stripTypeScriptTypes('class RemoteKeyHarness {\n' + fragment + '
 vm.runInContext(stripTypeScriptTypes(readFileSync('.work/client/entry/src/main/ets/services/RemoteSessionInputOwner.ets', 'utf8')
   .replace(/^export /gm, '') + '\nglobalThis.RemoteSessionInputOwner = RemoteSessionInputOwner;'), api);
 api.KeyType = { Down: 0, Up: 1 };
+api.hilog = { info() {} }; api.RD_DOMAIN = 0; api.RD_TAG = 'test';
 api.RemoteKeyboardLayout = { MACOS: 'macos' };
 api.promptAction = { showToast() {} };
 api.setTimeout = () => 1; api.clearTimeout = () => {};
@@ -127,7 +128,7 @@ function harness() {
     mateTvMode: true, connected: true, sessionId: 3, inputForwardReady: true,
     mateTvLeaving: false, mateTvDisplayOpen: false, mateTvTextOpen: false,
     keyboardOpen: false, keyboardImeActive: false,
-    remoteKeyboardModalOwnsInput: () => false, remoteKeyboardForeground: () => true,
+    remoteKeyboardModalOwnsInput: () => false, remoteKeyboardModalFlags: () => [], remoteKeyboardForeground: () => true,
     harmonyShortcutRemoteInputAllowed: () => true, sessionInputOwner: new api.RemoteSessionInputOwner(),
     canForwardInput: () => true, physicalKeyboardLayoutConfirmed: true,
     remoteKeyboardLayoutForSession: () => 'macos',
@@ -424,4 +425,117 @@ test('lifecycle cancellation also invalidates outstanding device and voice captu
   assert.equal(h.mateTvRemoteCapturing, false); assert.equal(h.mateTvVoiceLearning, false);
   assert.ok(h.mateTvRemoteCaptureGeneration > captureGeneration);
   assert.ok(h.mateTvVoiceGeneration > voiceGeneration);
+});
+
+function physicalEvent(code, down, timestamp, device = 17) {
+  return { keyCode: code, deviceId: device, type: down ? api.KeyType.Down : api.KeyType.Up,
+    timestamp, stopped: 0, stopPropagation() { this.stopped++; } };
+}
+
+test('page-only menu event binds a remote without any direction-key event', async () => {
+  api.inputDevice = { getDeviceInfo: async id => ({ id, name: 'Remote', vendor: 1, product: 2, uniq: 'remote-unique' }) };
+  const { h } = harness(); const focus = [];
+  h.getUIContext = () => ({ getFocusController: () => ({ isActive: () => false,
+    activate: (...args) => focus.push(['active', ...args]), requestFocus: id => focus.push(['focus', id]) }) });
+  h.mateTvDisplayOpen = true; h.mateTvRemoteDeviceId = -1;
+  h.sessionInputOwner.visible('MateTvDisplay', true);
+  h.mateTvStartRemoteCapture();
+  assert.equal(h.mateTvPageRemoteKey(physicalEvent(2067, true, 1, 8)), true);
+  await Promise.resolve();
+  assert.equal(h.mateTvRemoteCandidate.id, 8);
+  assert.equal(h.mateTvRemoteSelectedKey, 4);
+  h.mateTvPageRemoteKey(physicalEvent(2067, false, 2, 8));
+  h.mateTvSaveRemoteKeys = () => h.mateTvCancelRemoteKeys();
+  h.mateTvConfirmRemoteBinding();
+  assert.equal(h.mateTvRemoteDeviceId, 8);
+  assert.deepEqual(focus, [['focus', 'MateTvRemoteBinding'], ['active', true, false], ['active', false, true]]);
+});
+
+test('root menu fallback performs a bound action without a surface key callback', () => {
+  const { h, calls } = harness(); h.mateTvRemoteKeys.actions[4] = 'enter';
+  assert.equal(h.mateTvPageRemoteKey(physicalEvent(2067, true, 101)), true);
+  assert.equal(h.mateTvPageRemoteKey(physicalEvent(2067, false, 102)), true);
+  assert.deepEqual(calls, [['tap', 2054, 'enter']]);
+});
+
+test('surface and root delivery of the same native event execute once, including a delayed bubble', () => {
+  let now = 0; api.Date = { now: () => now };
+  const { h, calls } = harness(); h.mateTvRemoteKeys.actions[4] = 'arrow-up';
+  const down = physicalEvent(2067, true, 201), up = physicalEvent(2067, false, 202);
+  assert.equal(h.mateTvRouteRemoteKey(down), true);
+  now = 100; assert.equal(h.mateTvPageRemoteKey({ ...down, stopped: 0 }), true);
+  assert.equal(h.mateTvRouteRemoteKey(up), true);
+  now = 200; assert.equal(h.mateTvPageRemoteKey({ ...up, stopped: 0 }), true);
+  assert.deepEqual(calls, [['tap', 2012, 'arrow-up']]);
+  // A genuine subsequent physical dispatch has another timestamp and must work.
+  h.mateTvPageRemoteKey(physicalEvent(2067, true, 203));
+  h.mateTvPageRemoteKey(physicalEvent(2067, false, 204));
+  assert.equal(calls.length, 2);
+});
+
+test('root fallback leaves ordinary keyboard Down/Up leases untouched and excludes another device', () => {
+  const { h, calls } = harness(); h.mateTvRemoteKeys.actions[4] = 'enter';
+  for (const code of [2017, 2067]) {
+    const down = physicalEvent(code, true, code, 88), up = physicalEvent(code, false, code + 1, 88);
+    assert.equal(h.mateTvRouteRemoteKey(down), false);
+    assert.equal(h.sessionInputOwner.allowsPhysical(code, true), true);
+    assert.equal(h.mateTvPageRemoteKey(down), false);
+    assert.equal(h.mateTvRouteRemoteKey(up), false);
+    assert.equal(h.sessionInputOwner.allowsPhysical(code, false), true);
+    assert.equal(h.mateTvPageRemoteKey(up), false);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test('new modal epochs stop root learning and prevent late discovery or confirmation', async () => {
+  let resolve;
+  api.inputDevice = { getDeviceInfo: () => new Promise(done => { resolve = done; }) };
+  const { h, calls } = harness(); h.mateTvDisplayOpen = true;
+  h.sessionInputOwner.visible('MateTvDisplay', true);
+  h.mateTvRemoteLearningEpoch = h.sessionInputOwner.epoch(); h.mateTvRemoteCapturing = true;
+  h.mateTvPageRemoteKey(physicalEvent(2067, true, 300));
+  const auth = h.sessionInputOwner.acquire('Auth', 'system');
+  resolve({ id: 17, name: 'Remote', vendor: 1, product: 2, uniq: 'remote-unique' });
+  await Promise.resolve();
+  assert.equal(h.mateTvRemoteCandidate, null);
+  assert.equal(h.mateTvPageRemoteKey(physicalEvent(2067, false, 301)), false);
+  assert.equal(h.mateTvRemoteCapturing, false);
+  h.sessionInputOwner.release(auth);
+  assert.equal(h.mateTvPageRemoteKey(physicalEvent(2067, true, 302)), false);
+  assert.equal(calls.length, 0);
+});
+
+test('root routing respects runtime KeyType constants instead of assuming numeric event order', () => {
+  const previous = api.KeyType; api.KeyType = { Down: 1, Up: 0 };
+  try {
+    const { h, calls } = harness(); h.mateTvRemoteKeys.actions[4] = 'enter';
+    h.mateTvPageRemoteKey(physicalEvent(2067, true, 400));
+    h.mateTvPageRemoteKey(physicalEvent(2067, false, 401));
+    assert.deepEqual(calls, [['tap', 2054, 'enter']]);
+  } finally { api.KeyType = previous; }
+});
+
+test('remote key diagnostics persist bounded metadata, throttle repeats and never record editor or letter events', () => {
+  let now = 1000; api.Date = { now: () => now };
+  const storage = new Map([['remoteMenu', JSON.stringify(['previous-session'])]]); let writes = 0;
+  api.preferences = { getPreferencesSync: (_ctx, options) => {
+    assert.equal(options.name, 'ScreenLinkInputDiagnostics');
+    return { getSync: (key, fallback) => storage.get(key) ?? fallback,
+      putSync: (key, value) => { writes++; storage.set(key, value); }, flushSync() {} };
+  } };
+  const { h } = harness();
+  const menu = physicalEvent(2067, true, 900, 8); menu.keyText = 'MUST_NOT_PERSIST';
+  h.mateTvRemoteKeyDiagnostic(menu, 'page');
+  assert.equal(writes, 1); assert.equal(JSON.parse(storage.get('remoteMenu'))[0], 'previous-session');
+  now += 20; h.mateTvRemoteKeyDiagnostic(menu, 'page'); assert.equal(writes, 1);
+  h.mateTvRemoteKeyDiagnostic(physicalEvent(2067, false, 901, 8), 'page'); assert.equal(writes, 2);
+  h.mateTvRemoteKeyDiagnostic(physicalEvent(2017, true, 902), 'page');
+  h.mateTvRemoteKeyDiagnostic(physicalEvent(2012, true, 903, 88), 'page'); assert.equal(writes, 2);
+  h.keyboardOpen = true; h.mateTvRemoteKeyDiagnostic(menu, 'page'); assert.equal(writes, 2); h.keyboardOpen = false;
+  for (let i = 0; i < 40; i++) { now += 300; h.mateTvRemoteKeyDiagnostic(menu, 'page'); }
+  const lines = JSON.parse(storage.get('remoteMenu'));
+  assert.equal(lines.length, 32); assert.ok(lines.every(line => line.includes('phase=down') && line.includes('device=8')));
+  assert.ok(lines.every(line => !line.includes('MUST_NOT_PERSIST')));
+  h.mateTvRemoteKeyDiagnostic(physicalEvent(2012, true, 904, 17), 'surface');
+  assert.match(JSON.parse(storage.get('remoteMenu')).at(-1), /code=2012.*keyDown=0 keyUp=1 device=17/);
 });

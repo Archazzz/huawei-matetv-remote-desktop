@@ -490,7 +490,7 @@ def patch_session(text: str) -> str:
     members += (ROOT / 'tv/fragments/video-watchdog.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
     text = replace_once(text, "    .id('RemoteDesktopPageRoot')",
-                        "    .id('RemoteDesktopPageRoot')\n    .onAreaChange((_old: Area, area: Area): void => { this.mateTvMeasureControlsRoot(area); })")
+                        "    .id('RemoteDesktopPageRoot')\n    .onKeyEvent((event: KeyEvent): boolean => this.mateTvPageRemoteKey(event))\n    .onAreaChange((_old: Area, area: Area): void => { this.mateTvMeasureControlsRoot(area); })")
     text = replace_once(text, '      this.syncRustDeskPeerInputState(sessionId);',
                         '      this.loader.pollAudioInterruptRecovery(this.remoteKeyboardForeground() && !this.mateTvLeaving, sessionId);\n'
                         '      this.mateTvApplyAudioGain();\n'

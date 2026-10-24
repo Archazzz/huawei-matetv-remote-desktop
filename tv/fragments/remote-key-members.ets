@@ -16,6 +16,14 @@
   private mateTvRemoteDeviceGeneration: number = 0;
   private mateTvRemoteCaptureGeneration: number = 0;
   private mateTvRemoteCaptureTimer: number = -1;
+  private mateTvRemoteLearningEpoch: number = 0;
+  private mateTvRemoteLearningFocusPinned: boolean = false;
+  private mateTvRemoteLearningPreviousFocus: boolean = false;
+  private mateTvLastSurfaceKeyStamp: string = '';
+  private mateTvLastSurfaceKeyConsumed: boolean = false;
+  private mateTvRemoteDiagnosticLoaded: boolean = false;
+  private mateTvRemoteDiagnostics: string[] = [];
+  private mateTvRemoteDiagnosticDownAt: Map<string, number> = new Map<string, number>();
 
   private mateTvRemotePrefsKey(): string {
     return this.pendingHost === null ? '' : 'mateTvRemoteKeys:' +
@@ -74,25 +82,58 @@
     this.mateTvRemoteCandidateName = '';
     if (this.mateTvRemoteCaptureTimer >= 0) { clearTimeout(this.mateTvRemoteCaptureTimer); }
     this.mateTvRemoteCaptureTimer = -1;
+    this.mateTvRestoreLearningFocus();
+  }
+
+  private mateTvRestoreLearningFocus(): void {
+    if (!this.mateTvRemoteLearningFocusPinned) { return; }
+    this.mateTvRemoteLearningFocusPinned = false;
+    try {
+      this.getUIContext().getFocusController().activate(this.mateTvRemoteLearningPreviousFocus, true);
+    } catch (_error) {}
+  }
+
+  private mateTvFocusLearning(target: string): void {
+    try {
+      const focus = this.getUIContext().getFocusController();
+      const previous: boolean = focus.isActive();
+      focus.requestFocus(target);
+      this.mateTvRemoteLearningPreviousFocus = previous;
+      this.mateTvRemoteLearningFocusPinned = true;
+      focus.activate(true, false);
+    } catch (_error) { this.mateTvRestoreLearningFocus(); }
+  }
+
+  private mateTvLearningInputAllowed(): boolean {
+    return this.mateTvDisplayOpen && !this.mateTvTextOpen && !this.keyboardOpen && !this.keyboardImeActive &&
+      this.remoteKeyboardForeground() && this.remoteKeyboardModalFlags().length === 0 &&
+      this.sessionInputOwner.current(this.mateTvRemoteLearningEpoch);
   }
 
   private mateTvStartRemoteCapture(): void {
+    this.mateTvCancelVoiceLearning();
     this.mateTvCancelRemoteCapture();
+    this.mateTvRemoteLearningEpoch = this.sessionInputOwner.epoch();
+    if (!this.mateTvLearningInputAllowed()) { return; }
+    this.mateTvFocusLearning('MateTvRemoteBinding');
     this.mateTvRemoteCapturing = true;
     this.mateTvRemoteCaptureTimer = setTimeout((): void => { this.mateTvCancelRemoteCapture(); }, 15000);
-    this.getUIContext().getFocusController().requestFocus('MateTvRemoteBinding');
   }
 
   private mateTvCaptureRemoteKey(event: KeyEvent): boolean {
-    if (!this.mateTvRemoteCapturing || !this.mateTvDisplayOpen || tvRemoteDirectionIndex(event.keyCode) < 0) { return false; }
+    if (!this.mateTvRemoteCapturing || !this.mateTvLearningInputAllowed() ||
+        (tvRemoteDirectionIndex(event.keyCode) < 0 && event.keyCode !== 2067)) { return false; }
+    this.mateTvRemoteKeyDiagnostic(event, 'binding');
     event.stopPropagation();
     if (event.type !== KeyType.Down || this.mateTvRemoteCandidate !== null || event.deviceId === undefined || event.deviceId < 0) { return true; }
     const generation: number = ++this.mateTvRemoteCaptureGeneration;
+    const observedKeyCode: number = event.keyCode;
     inputDevice.getDeviceInfo(event.deviceId).then((info: inputDevice.InputDeviceData): void => {
-      if (generation !== this.mateTvRemoteCaptureGeneration || !this.mateTvRemoteCapturing || !this.mateTvDisplayOpen) { return; }
+      if (generation !== this.mateTvRemoteCaptureGeneration || !this.mateTvRemoteCapturing || !this.mateTvLearningInputAllowed()) { return; }
       if (info.isVirtual === true) { this.mateTvRemoteCandidateName = '请使用实体遥控器'; return; }
       this.mateTvRemoteCandidate = this.mateTvRemoteDevice(info);
       this.mateTvRemoteCandidateName = info.name;
+      this.mateTvRemoteSelectedKey = observedKeyCode === 2067 ? 4 : tvRemoteDirectionIndex(observedKeyCode);
     }).catch((): void => {
       if (generation === this.mateTvRemoteCaptureGeneration && this.mateTvRemoteCapturing) {
         this.mateTvRemoteCandidateName = '无法识别设备，请重试';
@@ -103,7 +144,7 @@
 
   private mateTvConfirmRemoteBinding(): void {
     const candidate: TvRemoteDevice | null = this.mateTvRemoteCandidate;
-    if (candidate === null || !this.mateTvDisplayOpen) { return; }
+    if (candidate === null || !this.mateTvLearningInputAllowed()) { return; }
     const fingerprint: string = tvRemoteDeviceFingerprint(candidate);
     this.mateTvRemoteDeviceGeneration++;
     this.mateTvRemoteDeviceId = candidate.id;
@@ -172,11 +213,16 @@
     this.mateTvVoiceLearning = false; this.mateTvVoiceDown = -1;
     if (this.mateTvVoiceTimer >= 0) { clearTimeout(this.mateTvVoiceTimer); }
     this.mateTvVoiceTimer = -1;
+    this.mateTvRestoreLearningFocus();
   }
 
   private mateTvStartVoiceLearning(): void {
+    this.mateTvCancelRemoteCapture();
     this.mateTvCancelVoiceLearning();
+    this.mateTvRemoteLearningEpoch = this.sessionInputOwner.epoch();
+    if (!this.mateTvLearningInputAllowed()) { return; }
     if (this.mateTvRemoteDeviceId < 0) { this.mateTvVoiceStatus = '请先绑定遥控器'; return; }
+    this.mateTvFocusLearning('MateTvVoiceLearning');
     this.mateTvVoiceLearning = true;
     this.mateTvVoiceStatus = '按下并松开语音键';
     const generation: number = this.mateTvVoiceGeneration;
@@ -185,11 +231,10 @@
       this.mateTvCancelVoiceLearning();
       this.mateTvVoiceStatus = '未收到完整按键事件，可能由系统接管';
     }, 15000);
-    this.getUIContext().getFocusController().requestFocus('MateTvVoiceLearning');
   }
 
   private mateTvLearnVoiceKey(event: KeyEvent): boolean {
-    if (!this.mateTvVoiceLearning || !this.mateTvDisplayOpen || event.deviceId !== this.mateTvRemoteDeviceId ||
+    if (!this.mateTvVoiceLearning || !this.mateTvLearningInputAllowed() || event.deviceId !== this.mateTvRemoteDeviceId ||
         !tvRemoteVoiceCandidate(event.keyCode)) { return false; }
     if (event.type !== KeyType.Down && event.type !== KeyType.Up) { return false; }
     event.stopPropagation();
@@ -225,14 +270,82 @@
     this.mateTvSaveRemoteKeys();
   }
 
-  private mateTvRouteRemoteKey(event: KeyEvent): boolean {
+  private mateTvRemoteKeyStamp(event: KeyEvent): string {
+    // Only native dispatch metadata is retained, never text or the event object.
+    if (!Number.isFinite(event.timestamp) || event.timestamp <= 0) { return ''; }
+    return (event.deviceId ?? -1).toString() + ':' + event.keyCode.toString() + ':' +
+      event.type.toString() + ':' + event.timestamp.toString();
+  }
+
+  private mateTvRemoteKeyDiagnostic(event: KeyEvent, path: string): void {
+    if (!this.mateTvMode || this.mateTvTextOpen || this.keyboardOpen || this.keyboardImeActive ||
+        (event.type !== KeyType.Down && event.type !== KeyType.Up)) { return; }
+    const device: number = event.deviceId ?? -1;
+    if (event.keyCode !== 2067 && !(device >= 0 && device === this.mateTvRemoteDeviceId &&
+        tvRemoteDirectionIndex(event.keyCode) >= 0)) { return; }
+    const now: number = Date.now();
+    const identity: string = path + ':' + device.toString() + ':' + event.keyCode.toString();
+    if (event.type === KeyType.Down) {
+      const previous: number | undefined = this.mateTvRemoteDiagnosticDownAt.get(identity);
+      if (previous !== undefined && now - previous < 250) { return; }
+      if (this.mateTvRemoteDiagnosticDownAt.size >= 32) { this.mateTvRemoteDiagnosticDownAt.clear(); }
+      this.mateTvRemoteDiagnosticDownAt.set(identity, now);
+    } else { this.mateTvRemoteDiagnosticDownAt.delete(identity); }
+    const line: string = now.toString() + ' path=' + path + ' code=' + event.keyCode.toString() +
+      ' phase=' + (event.type === KeyType.Down ? 'down' : 'up') + ' type=' + event.type.toString() +
+      ' keyDown=' + KeyType.Down.toString() + ' keyUp=' + KeyType.Up.toString() + ' device=' + device.toString() +
+      ' timestamp=' + (Number.isFinite(event.timestamp) ? event.timestamp.toString() : 'unavailable');
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV remote-key %{public}s', line);
+    try {
+      const prefs = preferences.getPreferencesSync(getContext(this), { name: 'ScreenLinkInputDiagnostics' });
+      if (!this.mateTvRemoteDiagnosticLoaded) {
+        this.mateTvRemoteDiagnosticLoaded = true;
+        try {
+          const saved = JSON.parse(prefs.getSync('remoteMenu', '[]') as string) as string[];
+          if (Array.isArray(saved)) {
+            this.mateTvRemoteDiagnostics = saved.filter((value: string): boolean => typeof value === 'string').slice(-32);
+          }
+        } catch (_error) { this.mateTvRemoteDiagnostics = []; }
+      }
+      this.mateTvRemoteDiagnostics = [...this.mateTvRemoteDiagnostics, line].slice(-32);
+      prefs.putSync('remoteMenu', JSON.stringify(this.mateTvRemoteDiagnostics));
+      prefs.flushSync();
+    } catch (_error) { /* Diagnostics cannot block remote input. */ }
+  }
+
+  private mateTvPageRemoteKey(event: KeyEvent): boolean {
+    if (!this.mateTvMode) { return false; }
+    this.mateTvRemoteKeyDiagnostic(event, 'page');
+    if (this.mateTvRemoteCapturing || this.mateTvVoiceLearning) {
+      if (!this.mateTvLearningInputAllowed()) {
+        this.mateTvCancelRemoteCapture(); this.mateTvCancelVoiceLearning();
+        return false;
+      }
+      if (this.mateTvCaptureRemoteKey(event) || this.mateTvLearnVoiceKey(event)) { return true; }
+    }
+    const stamp: string = this.mateTvRemoteKeyStamp(event);
+    if (stamp.length > 0 && stamp === this.mateTvLastSurfaceKeyStamp) {
+      if (this.mateTvLastSurfaceKeyConsumed) { event.stopPropagation(); }
+      return this.mateTvLastSurfaceKeyConsumed;
+    }
+    // Root bubbling is a fallback for bound mappings only. It must never send
+    // ordinary keyboard events or consume their upstream physical-key lease.
+    return this.mateTvRouteRemoteKey(event, true);
+  }
+
+  private mateTvRouteRemoteKey(event: KeyEvent, fromPage: boolean = false): boolean {
     if (!this.mateTvMode || (event.type !== KeyType.Down && event.type !== KeyType.Up)) { return false; }
+    if (!fromPage) { this.mateTvRemoteKeyDiagnostic(event, 'surface'); }
     const down: boolean = event.type === KeyType.Down;
     // Read-only gate: untouched physical Down/Up must reach the upstream owner exactly once.
     const active: boolean = this.mateTvRemoteInputActive();
     const decision: TvRemoteKeyDecision = this.mateTvRemotePolicy.route(event.keyCode,
       event.deviceId === undefined ? -1 : event.deviceId, down, active,
       this.mateTvRemoteDeviceId, this.mateTvRemoteKeys, Date.now());
+    if (!fromPage) {
+      this.mateTvLastSurfaceKeyStamp = this.mateTvRemoteKeyStamp(event);
+      this.mateTvLastSurfaceKeyConsumed = decision.consume;
+    }
     if (decision.consume) { event.stopPropagation(); }
     this.mateTvFlushRemoteGestures();
     if (decision.action.length > 0 && this.mateTvRemoteInputActive()) { this.mateTvRunRemoteAction(decision.action); }
@@ -282,7 +395,7 @@
       Text('遥控器按键 · 当前电脑').fontSize(20).fontColor('#F4F8FA').width('100%')
       Text(this.mateTvRemoteBindingStatus).fontSize(15).fontColor('#70E0C2').width('100%')
       Row({ space: 12 }) {
-        Button(this.mateTvRemoteCapturing ? '请按遥控器的任一方向键' : '绑定遥控器')
+        Button(this.mateTvRemoteCapturing ? '请按菜单键或方向键' : '绑定遥控器')
           .id('MateTvRemoteBinding').fontSize(16).height(42).focusable(true)
           .onClick((): void => { this.mateTvStartRemoteCapture(); })
           .onKeyEvent((event: KeyEvent): boolean => this.mateTvCaptureRemoteKey(event))
