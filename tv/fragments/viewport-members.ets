@@ -1,4 +1,3 @@
-  @State private mateTvViewportOpen: boolean = false;
   @State private mateTvViewFill: boolean = true;
   @State private mateTvViewX: number = 50;
   @State private mateTvViewY: number = 50;
@@ -26,7 +25,7 @@
   }
 
   private mateTvPanViewport(horizontal: boolean, value: number): void {
-    if (!this.mateTvViewportOpen || this.mateTvTextOpen || !this.connected || this.cleanupStarted) { return; }
+    if (this.mateTvTextOpen || this.mateTvDisplayOpen || !this.connected || this.cleanupStarted || this.rustDeskDisplaySwitchState.inputBlocked) { return; }
     const viewport: CanvasViewport = this.currentCanvasViewport();
     const edge: CanvasTransform = clampCanvasTransform({ scale: this.canvasTransform.scale,
       panX: 1e9, panY: 1e9, rotation: this.canvasTransform.rotation,
@@ -40,46 +39,41 @@
     this.applyCanvasTransform();
   }
 
-  private mateTvOpenViewport(): void {
-    this.mateTvCancelDrag();
-    this.releaseRustDeskInputBeforeBlock('matetv-viewport');
-    this.mateTvSyncViewport(this.currentCanvasViewport());
-    this.sessionInputOwner.appeared('MateTvViewport');
-    this.mateTvViewportOpen = true;
-  }
-
-  private mateTvCloseViewport(): void {
-    this.mateTvViewportOpen = false;
-    this.sessionInputOwner.disappeared('MateTvViewport');
-  }
-
   @Builder
-  private mateTvViewportPanel() {
-    Column({ space: 10 }) {
-      Row({ space: 8 }) {
-        Text('移动画面').fontSize(20).fontColor('#F4F8FA').layoutWeight(1)
-        this.mateTvButton('完成', (): void => { this.mateTvCloseViewport(); })
-      }.width('100%')
-      Row({ space: 8 }) {
-        this.mateTvButton(this.mateTvViewFill ? '✓ 短边铺满' : '短边铺满', (): void => { this.mateTvSetViewFill(true); })
-        this.mateTvButton(!this.mateTvViewFill ? '✓ 完整画面' : '完整画面', (): void => { this.mateTvSetViewFill(false); })
-        this.mateTvButton('居中', (): void => { this.resetCanvasToDisplayDefault(); })
-      }
-      if (this.mateTvViewCanX) {
-        Text('左 ← 画面位置 → 右').fontSize(15).fontColor('#B1C2CA')
+  private mateTvViewportDock() {
+    if (this.mateTvViewCanX) {
+      Column({ space: 0 }) {
+        Row() {
+          Text('左').fontSize(12).fontColor('#E6F1F4')
+          Blank()
+          Text('拖动圆点移动画面').fontSize(12).fontColor('#B1C2CA')
+          Blank()
+          Text('右').fontSize(12).fontColor('#E6F1F4')
+        }.width('100%')
         Slider({ value: this.mateTvViewX, min: 0, max: 100, step: 0.1 })
-          .width('100%').height(36).selectedColor('#70E0C2')
-          .onChange((value: number): void => { this.mateTvPanViewport(true, value); })
-      }
-      if (this.mateTvViewCanY) {
-        Text('顶 ← 画面位置 → 底').fontSize(15).fontColor('#B1C2CA')
-        Slider({ value: this.mateTvViewY, min: 0, max: 100, step: 0.1 })
-          .width('100%').height(36).selectedColor('#70E0C2')
-          .onChange((value: number): void => { this.mateTvPanViewport(false, value); })
-      }
-      Text(this.mateTvViewCanX || this.mateTvViewCanY ?
-        '拖动滑块查看边缘，点“完成”继续控制电脑。' : '当前画面已全部显示。')
-        .fontSize(14).fontColor('#B1C2CA')
-    }.width(470).padding(16).backgroundColor('#F5192A34').borderRadius(14)
-      .position({ x: 24, y: 78 }).hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(150)
+          .width('100%').height(38).blockSize({ width: 24, height: 24 })
+          .trackThickness(4).selectedColor('#70E0C2').blockColor('#D8FFF4')
+          .onChange((value: number, mode: SliderChangeMode): void => {
+            if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Click) { this.mateTvCancelDrag(); }
+            this.mateTvPanViewport(true, value);
+          })
+      }.width(320).padding({ left: 16, right: 16, top: 7, bottom: 1 })
+        .backgroundColor('#D9192A34').borderRadius(28).align(Alignment.Bottom).margin({ bottom: 16 })
+        .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(150)
+    }
+    if (this.mateTvViewCanY) {
+      Column({ space: 0 }) {
+        Text('顶').fontSize(12).fontColor('#E6F1F4')
+        Slider({ value: this.mateTvViewY, min: 0, max: 100, step: 0.1, direction: Axis.Vertical })
+          .height(200).width(40).blockSize({ width: 24, height: 24 })
+          .trackThickness(4).selectedColor('#70E0C2').blockColor('#D8FFF4')
+          .onChange((value: number, mode: SliderChangeMode): void => {
+            if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Click) { this.mateTvCancelDrag(); }
+            this.mateTvPanViewport(false, value);
+          })
+        Text('底').fontSize(12).fontColor('#E6F1F4')
+      }.width(48).padding({ top: 12, bottom: 12 })
+        .backgroundColor('#D9192A34').borderRadius(26).align(Alignment.End).margin({ right: 16 })
+        .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(150)
+    }
   }

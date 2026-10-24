@@ -5,7 +5,6 @@
     this.mateTvCancelDrag();
     this.mateTvCloseText();
     this.mateTvCloseDisplay();
-    this.mateTvCloseViewport();
     this.mateTvLeaving = true;
     // A failed/auth-cancelled route may already have completed native teardown.
     if (this.cleanupStarted && this.cleanupDisconnectIdentity === null &&

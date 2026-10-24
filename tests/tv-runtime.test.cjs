@@ -97,7 +97,7 @@ test('A second finger cannot release the primary contact', () => {
 });
 test('Leaving waits for native completion and repeated back cannot start another teardown', () => {
   const { page, context } = create(); let teardowns = 0;
-  page.mateTvCloseText = () => {}; page.mateTvCloseDisplay = () => {}; page.mateTvCloseViewport = () => {};
+  page.mateTvCloseText = () => {}; page.mateTvCloseDisplay = () => {};
   page.disconnectAndCleanup = () => { teardowns++; page.cleanupStarted = true; };
   page.mateTvLeaveSession(); page.mateTvLeaveSession();
   assert.equal(teardowns, 1); assert.equal(context.returns, 0);
@@ -130,7 +130,7 @@ function createViewport(width, height, surfaceWidth = 1920, surfaceHeight = 1080
   const page = new context.Viewport();
   const viewport = { surfaceWidth, surfaceHeight, sourceWidth: width, sourceHeight: height };
   Object.assign(page, {
-    mateTvMode: true, mateTvTextOpen: false, mateTvViewportOpen: true,
+    mateTvMode: true, mateTvTextOpen: false, mateTvDisplayOpen: false, rustDeskDisplaySwitchState: { inputBlocked: false },
     connected: true, cleanupStarted: false, canvasRotationQuarterTurns: 0,
     currentCanvasViewport() { return viewport; }, refreshCanvasTransformModified() {},
     applyCanvasTransform() { this.mateTvSyncViewport(viewport); },

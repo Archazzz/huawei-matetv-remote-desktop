@@ -68,14 +68,14 @@ def patch_session(text: str) -> str:
     members += (ROOT / 'tv/fragments/viewport-members.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
-                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvViewportOpen || this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { return false; }')
+                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { return false; }')
     text = replace_once(text,
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            this.openRustDeskAuthSheet();",
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            if (!this.mateTvTrySavedPassword()) { this.openRustDeskAuthSheet(); }")
     text = replace_once(text, '  private handleXComponentKey = (event: KeyEvent): boolean => {',
-                        '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvViewportOpen || this.mateTvTextOpen || this.mateTvDisplayOpen) { return false; }\n    if (this.mateTvMode && event.keyCode === 2016) { return false; }')
+                        '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen || this.mateTvDisplayOpen) { return false; }\n    if (this.mateTvMode && event.keyCode === 2016) { return false; }')
     text = replace_once(text, '  aboutToDisappear(): void {',
-                        '  aboutToDisappear(): void {\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();\n    this.mateTvCloseDisplay();\n    this.mateTvCloseViewport();')
+                        '  aboutToDisappear(): void {\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();\n    this.mateTvCloseDisplay();')
     text = replace_once(text, '  private handleXComponentMouse = (event: MouseEvent): void => {',
                         '  private handleXComponentMouse = (event: MouseEvent): void => {\n    if (this.mateTvObserveMouse(event)) { return; }')
     text = replace_once(text, "message: '远端未开放输入控制，请在被控手机开启 RustDesk 输入控制/无障碍权限',",
@@ -85,7 +85,7 @@ def patch_session(text: str) -> str:
     text = replace_once(text, "            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');",
                         "            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
     text = replace_once(text, '  onBackPress(): boolean {',
-                        '  onBackPress(): boolean {\n    if (this.mateTvViewportOpen) { this.mateTvCloseViewport(); return true; }\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }\n    if (this.mateTvMode) { if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.goBack(); } return true; }')
+                        '  onBackPress(): boolean {\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }\n    if (this.mateTvMode) { if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.goBack(); } return true; }')
     text = replace_once(text, '  private goBack(): void {',
                         '  private goBack(): void {\n    if (this.mateTvMode) { this.mateTvLeaveSession(); return; }')
     text = replace_once(text,
@@ -128,8 +128,8 @@ def patch_session(text: str) -> str:
     addition = '''      if (this.mateTvMode && this.connected) {
         this.mateTvToolbar()
       }
-      if (this.mateTvMode && this.connected && this.mateTvViewportOpen) {
-        this.mateTvViewportPanel()
+      if (this.mateTvMode && this.connected && !this.mateTvTextOpen && !this.mateTvDisplayOpen && !this.mateTvLeaving) {
+        this.mateTvViewportDock()
       }
       if (this.mateTvMode && this.mateTvLeaving) {
         Stack() { this.mateTvLeavingPanel() }

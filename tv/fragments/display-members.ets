@@ -31,7 +31,6 @@
   }
 
   private mateTvOpenDisplay(): void {
-    this.mateTvCloseViewport();
     this.mateTvCancelDrag();
     this.releaseRustDeskInputBeforeBlock('matetv-display');
     this.mateTvRefreshStreamStatus();
