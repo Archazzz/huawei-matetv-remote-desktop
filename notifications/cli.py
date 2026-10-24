@@ -35,7 +35,10 @@ def main():
         config = load_config(args.config)
         if args.command == "check":
             tls_context(config)
-            print("Configuration and TLS key pair valid. No listener started; no notification sent.")
+            if config.push is not None:
+                from .huawei_push import HuaweiPush
+                HuaweiPush(config.push)
+            print("Configuration, TLS and any configured push signing key valid. No listener started; no notification sent.")
             return
         device = next((d for d in config.devices if d.device_id == args.device_id), None)
         if device is None or args.app_id not in device.apps:

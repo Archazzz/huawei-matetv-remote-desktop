@@ -5,6 +5,7 @@
   "tlsKey": "notification-server.key",
   "tvToken": "REPLACE_WITH_SEPARATE_RANDOM_TV_READ_TOKEN",
   "maxEvents": 1000,
+  "statePath": "notification-state.sqlite",
   "devices": [
     {
       "deviceId": "example-mac",
