@@ -11,6 +11,7 @@
   @State private mateTvTextError: string = '';
   private mateTvTextSession: number = -1;
   private mateTvTextAttempt: number = -1;
+  private mateTvTextFocusGeneration: number = 0;
 
   private mateTvObserveMouse(event: MouseEvent): boolean {
     if (!this.mateTvMode) { return false; }
@@ -129,6 +130,7 @@
     if (!this.canForwardInput('matetv-open-text')) { return; }
     this.mateTvCancelDrag();
     this.dismissKeyboard();
+    this.mateTvTextFocusGeneration++;
     this.mateTvTextSession = this.sessionId;
     this.mateTvTextAttempt = this.connectAttemptId;
     this.mateTvText = '';
@@ -138,13 +140,42 @@
   }
 
   private mateTvCloseText(): void {
+    const wasOpen: boolean = this.mateTvTextOpen;
+    this.mateTvTextFocusGeneration++;
     this.mateTvTextOpen = false;
     this.mateTvText = '';
     this.mateTvTextError = '';
     this.mateTvTextSession = -1;
     this.mateTvTextAttempt = -1;
-    void inputMethod.getController().stopInputSession().catch((): void => {});
+    if (wasOpen) { void inputMethod.getController().stopInputSession().catch((): void => {}); }
     this.sessionInputOwner.disappeared('MateTvText');
+  }
+
+  private mateTvFocusText(): void {
+    if (!this.mateTvTextOpen) { return; }
+    try {
+      this.getUIContext().getFocusController().requestFocus('MateTvTextDraft');
+    } catch (_error) {
+      hilog.warn(RD_DOMAIN, RD_TAG, 'MateTV draft focus request unavailable');
+    }
+  }
+
+  private async mateTvSetKeyboardVisible(visible: boolean): Promise<void> {
+    if (!this.mateTvTextOpen) { return; }
+    const generation: number = this.mateTvTextFocusGeneration;
+    this.mateTvFocusText();
+    try {
+      const controller = inputMethod.getController();
+      if (visible) { await controller.showTextInput(); } else { await controller.hideTextInput(); }
+      if (!this.mateTvTextOpen || generation !== this.mateTvTextFocusGeneration) { return; }
+      if (!visible) { this.mateTvFocusText(); }
+      this.mateTvTextError = '';
+      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV system keyboard requested visible=' + visible.toString());
+    } catch (_error) {
+      if (this.mateTvTextOpen && generation === this.mateTvTextFocusGeneration) {
+        this.mateTvTextError = '键盘状态未能切换，请直接点输入框唤起键盘。';
+      }
+    }
   }
 
   private mateTvSubmitText(): void {
@@ -211,11 +242,24 @@
           .backgroundColor('#243640').fontColor('#F4F8FA').borderRadius(8)
           .onClick((): void => { this.mateTvCloseText(); })
       }.width('100%')
-      Text('点输入框后长按语音键听写，确认后发送。')
+      Text('长按语音键尝试听写；若打开小艺，请显示键盘。')
         .fontSize(15).fontColor('#B1C2CA').width('100%')
       TextArea({ text: this.mateTvText, placeholder: '输入或听写…' })
         .id('MateTvTextDraft').height(120).width('100%').fontSize(18).maxLength(8000)
+        .enableKeyboardOnFocus(false)
+        .onAppear((): void => { this.mateTvFocusText(); })
+        .onFocus((): void => { hilog.info(RD_DOMAIN, RD_TAG, 'MateTV draft focused'); })
         .onChange((value: string): void => { this.mateTvText = value; })
+      Row({ space: 10 }) {
+        Button('显示键盘', { type: ButtonType.Normal }).fontSize(15).height(32)
+          .backgroundColor('#243640').fontColor('#F4F8FA').borderRadius(8)
+          .focusOnTouch(false)
+          .onClick((): void => { void this.mateTvSetKeyboardVisible(true); })
+        Button('收起键盘', { type: ButtonType.Normal }).fontSize(15).height(32)
+          .backgroundColor('#243640').fontColor('#F4F8FA').borderRadius(8)
+          .focusOnTouch(false)
+          .onClick((): void => { void this.mateTvSetKeyboardVisible(false); })
+      }
       if (this.mateTvTextError !== '') {
         Text(this.mateTvTextError).fontSize(15).fontColor('#FFD4B5').width('100%')
       }
