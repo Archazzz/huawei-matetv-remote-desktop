@@ -105,6 +105,11 @@ def patch_session(text: str) -> str:
                    'updatePhysicalPointerCanvasFollow(localX: number, localY: number)']:
         text = replace_once(text, '  private ' + method + ': void {',
                             '  private ' + method + ': void {\n    if (this.mateTvMode) { return; }')
+    text = replace_once(text, '    this.rustDeskProfileTargetDisplay = display.display;',
+                        '    if (this.mateTvMode) { this.resetCanvasToDisplayDefault(); }\n    this.rustDeskProfileTargetDisplay = display.display;')
+    text = replace_once(text,
+                        '    previousHeight: number, nextWidth: number, nextHeight: number): void {',
+                        '    previousHeight: number, nextWidth: number, nextHeight: number): void {\n    if (this.mateTvMode && (previousWidth !== nextWidth || previousHeight !== nextHeight)) { this.canvasTransformGestureModified = false; return; }')
     # Preserve physical press duration; no pickup/drop mode or single-finger pan remapping.
     text = replace_once(text, '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {',
                         '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvTouchId = -1; this.mateTvTouchButton = -1; this.mateTvRightMouseRelease = false; }')

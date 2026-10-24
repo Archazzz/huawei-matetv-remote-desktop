@@ -121,9 +121,11 @@ const viewportFragment = read('tv/fragments/viewport-members.ets').split('  @Bui
 function createViewport(width, height, surfaceWidth = 1920, surfaceHeight = 1080) {
   const defaultMethod = session.slice(session.indexOf('  private currentCanvasDisplayDefault('),
     session.indexOf('  private refreshCanvasTransformModified('));
+  const rebaseMethod = session.slice(session.indexOf('  private rebaseManualCanvasForSourceGeometry('),
+    session.indexOf('  /** Disabling local canvas zoom'));
   const context = vm.createContext({});
   vm.runInContext(stripTypeScriptTypes(canvasPolicy.replace(/export /g, '') + '\nclass Viewport {\n' +
-    viewportFragment.replace(/@State /g, '') + defaultMethod +
+    viewportFragment.replace(/@State /g, '') + defaultMethod + rebaseMethod +
     '\n}\nglobalThis.Viewport = Viewport;'), context);
   const page = new context.Viewport();
   const viewport = { surfaceWidth, surfaceHeight, sourceWidth: width, sourceHeight: height };
@@ -178,6 +180,9 @@ test('16:9 has no overflow; fit and text panel preserve complete portrait image'
 test('Changing display geometry resets the pan axis and center', () => {
   const { page, viewport } = createViewport(5120, 1440);
   page.mateTvPanViewport(true, 100);
+  page.canvasTransformGestureModified = true;
+  page.rebaseManualCanvasForSourceGeometry(5120, 1440, 1080, 1920);
+  assert.equal(page.canvasTransformGestureModified, false);
   viewport.sourceWidth = 1080; viewport.sourceHeight = 1920;
   page.resetCanvasToDisplayDefault();
   assert.equal(page.mateTvViewCanX, false); assert.equal(page.mateTvViewCanY, true);
