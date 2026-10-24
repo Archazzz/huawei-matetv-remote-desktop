@@ -24,6 +24,7 @@ function create(layout = 'macos') {
     SourceTool: { MOUSE: 7, Finger: 1 }, SourceType: { Mouse: 2, KEY: 4, JOYSTICK: 5 },
     TouchType: { Down: 0, Up: 1, Move: 2, Cancel: 3 },
     MouseAction: { Press: 1, Release: 2 }, MouseButton: { Left: 1 },
+    TextAreaController: class { stopEditing() {} }, KeyType: { Down: 0, Up: 1 },
     hilog: { info() {}, warn() {} }, RD_DOMAIN: 0, RD_TAG: 'test',
     router: { back() { context.returns++; } }, returns: 0,
   });
@@ -528,4 +529,28 @@ test('Rejected detach still permits the normal PIP terminal recovery without an 
   fail(new Error('PIP terminal timeout'));
   await assert.rejects(pending); await Promise.resolve();
   assert.deepEqual(events, ['restore']);
+});
+
+test('Dictation Back consumes down/up, stops its editor before removal and restores pointer focus once', () => {
+  const {page} = create(); const events = [];
+  Object.assign(page, { mateTvTextOpen: true, connected: true, cleanupStarted: false,
+    mateTvTextController: {stopEditing() { assert.equal(page.mateTvTextOpen, true); events.push('stop-editor'); }},
+    resetCanvasToDisplayDefault() {}, remoteKeyboardForeground() {return true;},
+    shouldUseHardwareKeyboardProxy() { return false; },
+    sessionInputOwner: {retire() {events.push('retire');}, blocked() {return false;}, debugString() {return ''; }},
+    getUIContext() {return {getFocusController() {return {requestFocus(id) {
+      assert.equal(page.mateTvTextOpen, false); events.push(id);
+    }};}};},
+    reclaimRemoteSystemPointerAfterForeground() {events.push('pointer');},
+  });
+  const key = type => ({keyCode:2, type, stopPropagation() {events.push('consume');}});
+  assert.equal(page.mateTvTextBackKey(key(0)), true);
+  assert.equal(page.mateTvTextOpen, true);
+  assert.equal(page.mateTvTextBackKey(key(1)), true);
+  assert.deepEqual(events, ['consume', 'consume', 'stop-editor', 'retire', 'remoteInputSurface', 'pointer']);
+  page.mateTvCloseText();
+  assert.equal(events.filter(e => e === 'stop-editor').length, 1);
+  assert.equal(events.filter(e => e === 'pointer').length, 1);
+  page.mateTvTextOpen = true; page.mateTvCloseText(false);
+  assert.equal(events.filter(e => e === 'pointer').length, 1); // leave/settings do not reclaim focus
 });

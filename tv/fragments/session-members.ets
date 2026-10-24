@@ -21,6 +21,7 @@
   private mateTvTextSession: number = -1;
   private mateTvTextAttempt: number = -1;
   private mateTvTextAvoidMode: KeyboardAvoidMode | null = null;
+  private mateTvTextController: TextAreaController = new TextAreaController();
 
   private mateTvObserveMouse(event: MouseEvent): boolean {
     if (!this.mateTvMode) { return false; }
@@ -220,20 +221,42 @@
     this.resetCanvasToDisplayDefault();
   }
 
-  private mateTvCloseText(): void {
+  private mateTvTextBackKey(event: KeyEvent): boolean {
+    if (!this.mateTvTextOpen || event.keyCode !== 2) { return false; }
+    // Consume both halves before the IME can hide only its keyboard. Close on
+    // release so the same physical Back cannot also leave the remote session.
+    event.stopPropagation();
+    if (event.type === KeyType.Up) { this.mateTvCloseText(); }
+    return true;
+  }
+
+  private mateTvCloseText(restoreFocus: boolean = true): void {
     const wasOpen: boolean = this.mateTvTextOpen;
+    // End only our editor before removing it. A fire-and-forget global
+    // stopInputSession can finish after another editor has acquired focus.
+    if (wasOpen) {
+      try { this.mateTvTextController.stopEditing(); } catch (_error) {}
+    }
     this.mateTvTextOpen = false;
     if (wasOpen && this.connected && !this.cleanupStarted) { this.resetCanvasToDisplayDefault(); }
     this.mateTvText = '';
     this.mateTvTextError = '';
     this.mateTvTextSession = -1;
     this.mateTvTextAttempt = -1;
-    if (wasOpen) { void inputMethod.getController().stopInputSession().catch((): void => {}); }
     if (this.mateTvTextAvoidMode !== null) {
       try { this.getUIContext().setKeyboardAvoidMode(this.mateTvTextAvoidMode); } catch (_error) {}
       this.mateTvTextAvoidMode = null;
     }
     this.sessionInputOwner.retire('MateTvText');
+    if (wasOpen && restoreFocus && this.connected && !this.cleanupStarted &&
+        !this.mateTvLeaving && this.remoteKeyboardForeground() && !this.sessionInputOwner.blocked()) {
+      if (this.shouldUseHardwareKeyboardProxy()) {
+        this.scheduleRemoteInputFocus('matetv-text-close', true);
+      } else {
+        try { this.getUIContext().getFocusController().requestFocus('remoteInputSurface'); } catch (_error) {}
+      }
+      this.reclaimRemoteSystemPointerAfterForeground('matetv-text-close');
+    }
     hilog.info(RD_DOMAIN, RD_TAG, 'MateTV panel close text ' + this.sessionInputOwner.debugString());
   }
 
@@ -288,11 +311,13 @@
           .accessibilityText('关闭听写')
           .onClick((): void => { this.mateTvCloseText(); })
       }.width('100%')
-      TextArea({ text: this.mateTvText, placeholder: '输入或语音听写' })
-        .id('MateTvTextDraft').height(96).width('100%').fontSize(17).maxLength(8000)
+      TextArea({ text: this.mateTvText, placeholder: '输入或语音听写', controller: this.mateTvTextController })
+        .id('MateTvTextDraft').height(176).width('100%').fontSize(15).lineHeight(21).maxLength(8000)
+        .placeholderFont({ size: 15 })
         .fontColor('#F4F8FA').placeholderColor('#8DA6B0').backgroundColor('#101C25')
         .borderRadius(10).padding(12)
         .enableKeyboardOnFocus(true)
+        .onKeyPreIme((event: KeyEvent): boolean => this.mateTvTextBackKey(event))
         .onAppear((): void => { this.mateTvFocusText(); })
         .onFocus((): void => { hilog.info(RD_DOMAIN, RD_TAG, 'MateTV draft focused'); })
         .onChange((value: string): void => { this.mateTvText = value; })

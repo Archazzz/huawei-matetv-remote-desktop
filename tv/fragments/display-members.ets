@@ -67,7 +67,7 @@
 
   private mateTvOpenDisplay(): void {
     if (this.mateTvDisplayOpen || !this.connected || this.cleanupStarted) { return; }
-    this.mateTvCloseText();
+    this.mateTvCloseText(false);
     this.mateTvStopJoystick();
     this.mateTvCancelDrag();
     this.releaseRustDeskInputBeforeBlock('matetv-display');

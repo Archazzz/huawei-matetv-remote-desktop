@@ -35,7 +35,7 @@
     this.mateTvStopJoystick();
     if (this.mateTvLeaving) { return; }
     this.mateTvCancelDrag();
-    this.mateTvCloseText();
+    this.mateTvCloseText(false);
     this.mateTvCloseDisplay();
     this.mateTvLeaving = true;
     // A failed/auth-cancelled route may already have completed native teardown.
