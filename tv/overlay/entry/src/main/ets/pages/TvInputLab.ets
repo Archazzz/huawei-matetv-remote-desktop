@@ -1,5 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { TvAudioProbe } from '../services/TvAudioProbe';
 
 @Entry
@@ -10,6 +11,7 @@ struct TvInputLab {
   @State private count: number = 0;
   @State private audioTesting: boolean = false;
   @State private audioTestFailed: boolean = false;
+  @State private testFocused: boolean = false;
   private audioProbe: TvAudioProbe = new TvAudioProbe();
   private audioGeneration: number = 0;
 
@@ -38,6 +40,15 @@ struct TvInputLab {
     this.events = [this.count.toString() + '  ' + value, ...this.events].slice(0, 8);
   }
 
+  private recordKey(stage: string, event: KeyEvent): void {
+    // Only remote-control candidates; never log text or ordinary keyboard input.
+    if ([2012, 2013, 2014, 2015, 2067, 2722, 9].indexOf(event.keyCode) < 0) { return; }
+    const value: string = stage + ' key=' + event.keyCode.toString() +
+      ' type=' + event.type.toString() + ' device=' + event.deviceId.toString();
+    this.record(value);
+    hilog.info(0xD003900, 'ScreenLinkInputLab', '%{public}s', value);
+  }
+
   build() {
     Column({ space: 20 }) {
       Row() {
@@ -56,15 +67,22 @@ struct TvInputLab {
       }.width('100%')
       Row({ space: 24 }) {
         Column({ space: 16 }) {
-          Text('指向此区域，点击、滑动或使用键鼠').fontSize(24).fontColor('#F4F8FA')
+          Text(this.testFocused ? '已聚焦 · 可测试遥控器按键' : '点击此区域，测试遥控器按键').fontSize(24).fontColor('#F4F8FA')
           Text('事件仅显示在本机，不会发送到电脑。').fontSize(18).fontColor('#B1C2CA')
         }.layoutWeight(1).height(240).backgroundColor('#243640').borderRadius(16)
-          .focusable(true).defaultFocus(true)
+          .id('ScreenLinkInputLabTarget').focusable(true).defaultFocus(true)
+          .onFocus((): void => { this.testFocused = true; })
+          .onBlur((): void => { this.testFocused = false; })
           .onClick((event: ClickEvent): void => {
+            this.getUIContext().getFocusController().requestFocus('ScreenLinkInputLabTarget');
             this.record('click source=' + event.source.toString() + ' x=' + Math.round(event.x) + ' y=' + Math.round(event.y));
           })
+          .onKeyPreIme((event: KeyEvent): boolean => {
+            this.recordKey('pre', event);
+            return false;
+          })
           .onKeyEvent((event: KeyEvent): void => {
-            this.record('key ' + event.keyCode.toString() + ' type=' + event.type.toString());
+            this.recordKey('key', event);
           })
           .onMouse((event: MouseEvent): void => {
             if (event.action !== MouseAction.Move) {
