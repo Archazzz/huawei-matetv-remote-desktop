@@ -6,6 +6,7 @@ import { HostSyncService } from '../services/HostSyncService';
 import { CloudStore } from '../services/CloudStore';
 import { RemoteHost } from '../model/RemoteHost';
 import { provisionTvComputers } from '../services/TvComputerProvisioning';
+import { tvLastConnectionLabel } from '../services/TvLastConnectionLabel';
 
 @Entry
 @Component
@@ -15,6 +16,7 @@ struct TvHome {
   @State private computers: RemoteHost[] = [];
   @State private ready: boolean = false;
   @State private opening: boolean = false;
+  @State private openingComputer: string = '';
   @State private error: string = '';
   @State private editing: boolean = false;
   @State private label: string = '';
@@ -27,7 +29,7 @@ struct TvHome {
   private navigationGeneration: number = 0;
 
   aboutToAppear(): void { this.visible = true; void this.refresh(); }
-  onPageShow(): void { this.navigationGeneration++; this.visible = true; this.opening = false; void this.refresh(); }
+  onPageShow(): void { this.navigationGeneration++; this.visible = true; this.opening = false; this.openingComputer = ''; void this.refresh(); }
   onPageHide(): void { this.visible = false; this.navigationGeneration++; }
   aboutToDisappear(): void { this.visible = false; this.generation++; this.navigationGeneration++; }
 
@@ -113,6 +115,7 @@ struct TvHome {
   private openPage(url: string, hostId: string = ''): void {
     if (!this.visible || this.opening) { return; }
     this.opening = true;
+    this.openingComputer = hostId;
     const generation: number = ++this.navigationGeneration;
     const params: Record<string, Object> = {};
     if (hostId.length > 0) { params['hostId'] = hostId; }
@@ -120,6 +123,7 @@ struct TvHome {
       // A late rejection must not unlock a newer navigation after returning home.
       if (generation !== this.navigationGeneration || !this.visible) { return; }
       this.opening = false;
+      this.openingComputer = '';
       this.error = '无法打开页面，请重试';
     });
   }
@@ -166,8 +170,8 @@ struct TvHome {
         Column({ space: 12 }) {
           Text(host.label).fontSize(26).fontWeight(FontWeight.Medium).fontColor('#F4F8FA')
             .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(host.rustdeskDirectEnabled ? '直接连接' : '中继连接')
-            .fontSize(15).fontColor('#AFC4CC')
+          Text(this.openingComputer === host.id ? '正在打开…' : tvLastConnectionLabel(host.lastConnected))
+            .fontSize(15).fontColor('#AFC4CC').maxLines(2)
         }.alignItems(HorizontalAlign.Start).layoutWeight(1).padding({ right: 20 })
           .hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
       }.width('100%').height('100%').hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
