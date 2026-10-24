@@ -1,6 +1,17 @@
   @State private mateTvLeaving: boolean = false;
   private mateTvRestoreWaitingForDetach: Promise<void> | null = null;
 
+  private mateTvReleasePageSurface(): void {
+    this.loader.releaseProcessSurface(this.pictureSurfaceToken);
+    if (this.mateTvMode) {
+      // replaceUrl may mount the new page before the old XComponent emits
+      // onDestroy. Releasing the claim also revokes this page's authority to
+      // destroy the process surface: its late callbacks may stop only its
+      // exact renderer, never the newly connected page's global surface.
+      this.pictureSurfaceMode = 'own';
+    }
+  }
+
   private restoreFromBackground(): void {
     if (this.currentAbilityBackgroundState() || this.mateTvLeaving) { return; }
     const pending: Promise<void> | null = this.backgroundDetachPromise;

@@ -412,6 +412,11 @@ napi_value NapiPollAudioInterruptRecovery(napi_env env, napi_callback_info info)
 
 
 def patch_tv_foreground_recovery(text: str) -> str:
+    disappear = text.index('  aboutToDisappear(): void {')
+    release = text.index('    this.loader.releaseProcessSurface(this.pictureSurfaceToken);', disappear)
+    text = text[:release] + text[release:].replace(
+        '    this.loader.releaseProcessSurface(this.pictureSurfaceToken);',
+        '    this.mateTvReleasePageSurface();', 1)
     text = replace_once(text, '  private applyAbilityBackgroundState(isBackground: boolean): void {',
                         '  private applyAbilityBackgroundState(isBackground: boolean): void {\n'
                         '    this.mateTvObserveLifecycle(isBackground);')
