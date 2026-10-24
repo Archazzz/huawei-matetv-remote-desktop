@@ -75,4 +75,4 @@ python3 -m unittest discover -s tests -p 'test_codex_hook.py' -v
 - 已安装独立 Stop hook，原有电脑操作工具 notify 未改。用户在 Hooks 页面完成信任；通过官方 app-server `hooks/list` 只读查询得到 eventName=stop、enabled=true、trustStatus=trusted。该查询未创建会话、未读取聊天内容，也没有执行 hook。
 - 中转已作为独立用户 LaunchAgent 运行，HTTPS 校验返回 200。
 - 电视前台合成样例已由用户确认收到；点击“连接电脑”正确进入 Mac mini，截图结果一致。
-- 真实 Desktop Stop 事件仍待一轮回复自然结束后的送达验收；当前会话是否热加载新增 hook 亦需实测。微信和电视后台 Push 未完成，不由上述测试推导可用。
+- 用户随后明确确认收到真实 Codex 通知，验证当前 Mac Desktop Stop 自动触发并送达电视。微信和电视后台 Push 未完成，不由上述测试推导可用。
