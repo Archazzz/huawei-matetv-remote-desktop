@@ -1,12 +1,14 @@
 # 通知同步实施设计
 
-核查日期：2026-10-25。本文为设计，未启用通知采集，未发送测试通知，未证明电视后台横幅可用。
+核查日期：2026-10-25。本文同时记录方案和实现边界；下列前台原型已经安装，自动来源与后台到达分别验收。
 
 ## 当前状态与可复用代码
 
-屏间尚未实现电脑通知同步。此前的 `notifications-research.md` 是可行性调研，不是已交付功能。
+已实现独立 TLS 中转、电视前台接收开关、通知收件箱、来源显示和点击连接。用户已实测收到标明“合成样例”的测试通知，并点击连接进入 Mac mini；电视截图与结果一致。此证据仅验证测试消息通道，不代表真实 Codex／微信自动采集或后台到达完成。
 
-| 已有代码 | 可复用部分 | 尚缺部分 |
+下表记录实施前的可复用位置与当时缺口，当前实现状态以上述实测记录为准。
+
+| 已有代码 | 可复用部分 | 实施前缺口 |
 | --- | --- | --- |
 | `tv/overlay/entry/src/main/ets/pages/TvHome.ets` | 完成本机存储初始化后，用保存的 `host.id` 进入 RemoteDesktop | 通知接收、通知收件箱、冷启动后待处理点击 |
 | `tv/fragments/lifecycle-members.ets` | `mateTvLeaveSession` 等待原生会话释放后返回首页 | 通知切换目标的串行队列；不能直接在旧会话上叠加路由 |
@@ -31,9 +33,13 @@
 
 ### Codex 桌面版
 
-优先选择正式桌面事件接口，但目前尚无可确认的接口。此次访问官方 `codex/app/settings` 和 `codex/config-reference` 均返回 HTTP 403；此前调研也未取得相关正文。不能把 CLI 的通知配置或 hook 推定为当前桌面版可用，也不能把读取聊天任务列表当作系统通知原文来源。
+官方 `openai/codex` 的 hooks 源码确认 `Stop` 输入含 `session_id`、`turn_id`、`last_assistant_message`，可直接转发完成回复。公开项目 Seacolour/CodexHookNotify 明确提供桌面版 Stop hook 接法；本机 bundled CLI 0.163.0-alpha.11 的 `features list` 显示 `hooks stable true`。采用独立原创适配器，不需要读取聊天库或辅助功能权限。真实 Mac Desktop 触发仍需安装、信任和最终事件验收。
 
-可验证的实验路线是对 macOS 通知中心执行辅助功能可访问性观察：用户主动触发一条无敏感内容的任务完成或需要操作通知，观察系统提供哪些可访问文本、是否暴露稳定来源标识、通知出现/更新/消失如何区分。若系统未提供事件或完整文本，明确不支持该情形，不虚构正文。只有确认桌面版正式事件接口后，才可用事件适配器替换此实验路径。
+`PermissionRequest` 在 guardian／用户审批 UI 之前触发，因此只表示发生权限请求，不能声称用户此刻仍需批准。`request_user_input` 相关 hook 是否在当前桌面运行还需实测，不以问号或工具参数启发式猜测。
+
+本机已有 `notify` 配置用于电脑操作工具，保留不覆盖。新增配置使用 `hooks.json`，合并而不替换其他 hook；执行器保持 stdout 为空、退出 0，不向审批系统返回 allow／deny。只传最终回复，不传 prompt、cwd 或 transcript 路径。最终回复与系统通知横幅不是同一文本来源，应在交付中明确说明。
+
+参考：[官方 Stop](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/events/stop.rs)、[官方 PermissionRequest](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/events/permission_request.rs)、[CodexHookNotify](https://github.com/Seacolour/CodexHookNotify)。
 
 ### 普通微信
 
@@ -87,7 +93,7 @@
 
 需要实机验证的门槛：
 
-- Mac 助手获用户授权后，Codex 和微信各自实际系统通知能否读取、来源能否识别、正文是否完整；特别覆盖中文、长文、隐藏预览、更新与聚合。
+- Codex Stop hook 在 Mac Desktop 真正触发并送达；微信通知来源能否可信识别、正文是否完整，覆盖中文、长文、隐藏预览、更新与聚合。
 - 当前 TV 前台/其他视频应用前台/屏间进程未运行三种状态的到达、横幅、点击与认证行为。
 - 正在远控时点击另一台电脑的通知，旧会话释放完成后才能进入新电脑；重复点击不制造并发会话。
 - MacBook 经 Tailscale 发送到中转再到 TV；断线重连不重复弹出过期通知。
