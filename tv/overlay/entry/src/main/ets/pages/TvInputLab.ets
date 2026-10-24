@@ -18,6 +18,33 @@ struct TvInputLab {
   private keyDiagnostics: string[] = [];
   private textEntryFocused: boolean = false;
   private lastTouchDiagnosticAt: number = 0;
+  private diagnosticFocusActive: boolean = false;
+  private diagnosticPreviousFocus: boolean = false;
+
+  private focusTestTarget(): void {
+    try {
+      const controller = this.getUIContext().getFocusController();
+      if (!this.diagnosticFocusActive) {
+        this.diagnosticPreviousFocus = controller.isActive();
+        this.diagnosticFocusActive = true;
+      }
+      controller.activate(true, false);
+      controller.setKeyProcessingMode(KeyProcessingMode.ANCESTOR_EVENT);
+      controller.requestFocus('ScreenLinkInputLabTarget');
+      this.saveKeyDiagnostic('focus-request active=' + controller.isActive().toString());
+    } catch (_error) { this.releaseTestFocus(); this.saveKeyDiagnostic('focus-request-failed'); }
+  }
+
+  private releaseTestFocus(): void {
+    if (!this.diagnosticFocusActive) { return; }
+    this.diagnosticFocusActive = false;
+    try {
+      const controller = this.getUIContext().getFocusController();
+      controller.setKeyProcessingMode(KeyProcessingMode.FOCUS_NAVIGATION);
+    } catch (_error) {}
+    try { this.getUIContext().getFocusController().activate(this.diagnosticPreviousFocus, true); }
+    catch (_error) {}
+  }
 
   aboutToAppear(): void {
     try {
@@ -27,7 +54,7 @@ struct TvInputLab {
         this.keyDiagnostics = saved.filter((value: string): boolean => typeof value === 'string').slice(-128);
       }
     } catch (_error) { this.keyDiagnostics = []; }
-    this.saveKeyDiagnostic('test-page-open');
+    this.saveKeyDiagnostic('test-page-open keyDown=' + KeyType.Down.toString() + ' keyUp=' + KeyType.Up.toString());
   }
 
   private saveKeyDiagnostic(value: string): void {
@@ -45,8 +72,8 @@ struct TvInputLab {
     this.audioTesting = false;
   }
 
-  onPageHide(): void { this.saveKeyDiagnostic('test-page-hide'); this.cancelAudioTest(); }
-  aboutToDisappear(): void { this.cancelAudioTest(); }
+  onPageHide(): void { this.saveKeyDiagnostic('test-page-hide'); this.releaseTestFocus(); this.cancelAudioTest(); }
+  aboutToDisappear(): void { this.releaseTestFocus(); this.cancelAudioTest(); }
 
   private async testAudio(): Promise<void> {
     if (this.audioTesting) { return; }
@@ -69,7 +96,8 @@ struct TvInputLab {
     // Observe unknown remote key codes too, but never record the text-entry path.
     if (this.textEntryFocused) { return; }
     const value: string = stage + ' key=' + event.keyCode.toString() +
-      ' type=' + event.type.toString() + ' device=' + event.deviceId.toString();
+      ' type=' + event.type.toString() + ' phase=' + (event.type === KeyType.Down ? 'down' :
+      (event.type === KeyType.Up ? 'up' : 'other')) + ' device=' + event.deviceId.toString();
     this.record(value);
     hilog.info(0x14, 'ScreenLinkInputLab', '%{public}s', value);
   }
@@ -99,7 +127,7 @@ struct TvInputLab {
           .onFocus((): void => { this.testFocused = true; this.saveKeyDiagnostic('target-focus'); })
           .onBlur((): void => { this.testFocused = false; this.saveKeyDiagnostic('target-blur'); })
           .onClick((event: ClickEvent): void => {
-            this.getUIContext().getFocusController().requestFocus('ScreenLinkInputLabTarget');
+            this.focusTestTarget();
             this.record('click source=' + event.source.toString() + ' x=' + Math.round(event.x) + ' y=' + Math.round(event.y));
           })
           .onKeyPreIme((event: KeyEvent): boolean => {
@@ -122,8 +150,16 @@ struct TvInputLab {
               ' tool=' + event.sourceTool.toString() + ' device=' + (event.deviceId ?? -1).toString() +
               ' points=' + event.touches.length.toString());
           })
+          .onAxisEvent((event: AxisEvent): void => {
+            this.record('axis action=' + event.action.toString() + ' source=' + event.source.toString() +
+              ' tool=' + event.sourceTool.toString() + ' device=' + (event.deviceId ?? -1).toString() +
+              ' x=' + event.getHorizontalAxisValue().toString() + ' y=' + event.getVerticalAxisValue().toString());
+            event.propagation();
+          })
           .parallelGesture(PanGesture().onActionEnd((event: GestureEvent): void => {
-            this.record('pan x=' + Math.round(event.offsetX) + ' y=' + Math.round(event.offsetY));
+            this.record('pan x=' + Math.round(event.offsetX) + ' y=' + Math.round(event.offsetY) +
+              ' source=' + event.source.toString() + ' tool=' + event.sourceTool.toString() +
+              ' device=' + (event.deviceId ?? -1).toString() + ' fingers=' + event.fingerList.length.toString());
           }))
         Column({ space: 8 }) {
           ForEach(this.events, (event: string) => {
