@@ -72,7 +72,7 @@ def patch_session(text: str) -> str:
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            this.openRustDeskAuthSheet();",
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            if (!this.mateTvTrySavedPassword()) { this.openRustDeskAuthSheet(); }")
     text = replace_once(text, '  private handleXComponentKey = (event: KeyEvent): boolean => {',
-                        '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen) { return false; }')
+                        '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen || this.mateTvDisplayOpen) { return false; }\n    if (this.mateTvConfirmKey(event)) { return true; }')
     text = replace_once(text, '  aboutToDisappear(): void {',
                         '  aboutToDisappear(): void {\n    this.mateTvCancelDrag();\n    this.mateTvCloseText();\n    this.mateTvCloseDisplay();')
     text = replace_once(text, '  private handleXComponentMouse = (event: MouseEvent): void => {',
@@ -98,8 +98,11 @@ def patch_session(text: str) -> str:
     text = text.replace('.onTouch(this.handleConfiguredTouchInput)',
         '.onTouch((event: TouchEvent): void => { if (this.mateTvMode) { this.mateTvTouch(event); } else { this.handleConfiguredTouchInput(event); } })')
     anchor = '        .gesture(\n          GestureGroup(GestureMode.Parallel,'
-    addition = "        .onClick((event: ClickEvent): void => { this.mateTvClick(event); })\n"
-    text = replace_once(text, anchor, addition + anchor)
+    # Explicit gestures replace the implicit onClick recognizer on this surface.
+    # Put TV tap in the same parallel group; raw down/up still owns drag sequences.
+    text = replace_once(text, anchor, anchor + "\n            TapGesture({ count: 1, fingers: 1 })\n              .onAction((event: GestureEvent): void => { this.mateTvTap(event); }),")
+    text = replace_once(text, "        .focusable(false)\n        .focusOnTouch(false)\n        .defaultFocus(false)",
+                        "        .focusable(this.mateTvMode)\n        .focusOnTouch(this.mateTvMode)\n        .defaultFocus(this.mateTvMode)")
     anchor = '      // Keep the file-transfer sheet on its own host.'
     addition = '''      if (this.mateTvMode && this.connected) {
         this.mateTvToolbar()

@@ -65,7 +65,7 @@ test('Mac tap tolerates small sensor motion and sends exactly one click at press
   touch(0); touch(2, 101, 101); touch(2, 102, 100);
   assert.deepEqual(events, []);
   touch(1, 102, 100);
-  page.mateTvClick({ source: 1, x: 102, y: 100 });
+  page.mateTvClick(102, 100);
   assert.deepEqual(events, [['down', 100, 100, 0], ['up', 100, 100, 0]]);
 });
 test('Mac held motion crosses drag threshold and releases at final target', () => {
@@ -103,4 +103,15 @@ test('Leaving waits for native completion and repeated back cannot start another
   assert.equal(teardowns, 1); assert.equal(context.returns, 0);
   page.mateTvFinishLeave(); page.mateTvFinishLeave();
   assert.equal(context.returns, 1);
+});
+
+test('TV synthesized tap without raw down/up produces a click', () => {
+  const { page, events } = create();
+  page.mateTvTap({ fingerInfos: [{ localX: 120, localY: 90 }], fingerList: [] });
+  assert.deepEqual(events, [['down', 120, 90, 0], ['up', 120, 90, 0]]);
+});
+test('A real touch followed by its tap recognizer never clicks twice', () => {
+  const { page, events, touch } = create(); touch(0); touch(1);
+  page.mateTvTap({ fingerList: [{ localX: 100, localY: 100 }] });
+  assert.equal(events.length, 2);
 });

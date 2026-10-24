@@ -3,6 +3,8 @@
   private mateTvMode: boolean = deviceInfo.deviceType === 'tv';
   @State private mateTvRightClick: boolean = false;
   private mateTvButtonAt: number = 0;
+  private mateTvPointerX: number = -1;
+  private mateTvPointerY: number = -1;
   private mateTvTouchId: number = -1;
   private mateTvTouchButton: number = -1;
   private mateTvRightMouseRelease: boolean = false;
@@ -15,6 +17,8 @@
 
   private mateTvObserveMouse(event: MouseEvent): boolean {
     if (!this.mateTvMode) { return false; }
+    this.mateTvPointerX = event.x;
+    this.mateTvPointerY = event.y;
     if (event.sourceTool === SourceTool.Finger || this.mateTvTouchId >= 0) { return true; }
     if (event.action === MouseAction.Press || event.action === MouseAction.Release) {
       this.mateTvButtonAt = Date.now();
@@ -104,18 +108,40 @@
     }
   }
 
-  private mateTvClick(event: ClickEvent): void {
+  private mateTvTap(event: GestureEvent): void {
+    if (!this.mateTvMode) { return; }
+    const fingers: FingerInfo[] = event.fingerInfos ?? event.fingerList;
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV tap received points=' + fingers.length.toString());
+    if (fingers.length > 0 && fingers[0] !== undefined) {
+      this.mateTvClick(fingers[0].localX, fingers[0].localY);
+    } else if (this.mateTvPointerX >= 0 && this.mateTvPointerY >= 0) {
+      this.mateTvClick(this.mateTvPointerX, this.mateTvPointerY);
+    }
+  }
+
+  private mateTvConfirmKey(event: KeyEvent): boolean {
+    // The TV OK key is distinct from a physical keyboard's Enter key (2054).
+    if (!this.mateTvMode || event.keyCode !== 2016 || this.mateTvDisplayOpen || this.mateTvTextOpen) { return false; }
+    if (event.type === KeyType.Up && this.mateTvPointerX >= 0 && this.mateTvPointerY >= 0) {
+      hilog.info(RD_DOMAIN, RD_TAG, 'MateTV pointer confirm key');
+      this.mateTvClick(this.mateTvPointerX, this.mateTvPointerY);
+    }
+    return true;
+  }
+
+  private mateTvClick(localX: number, localY: number): void {
     if (!this.mateTvMode || this.mateTvTouchId >= 0 ||
         Date.now() - this.mateTvButtonAt < 500) { return; }
     // Fallback only for devices that emit a click without any down/up events.
     if (!this.canForwardInput('matetv-click')) { return; }
-    const point: MappedPoint = this.mapInputPoint(event.x, event.y);
+    const point: MappedPoint = this.mapInputPoint(localX, localY);
     if (!point.inside) { return; }
     this.discardPendingMouseMove();
     const button: number = this.mateTvRightClick ? 2 : 0;
     this.sendMouseNow(point.x, point.y, button, true);
     this.sendMouseNow(point.x, point.y, button, false);
     this.mateTvRightClick = false;
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV tap sent click');
   }
 
   private mateTvCancelDrag(): void {
