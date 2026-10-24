@@ -6,6 +6,7 @@
   private mateTvPointerX: number = -1;
   private mateTvPointerY: number = -1;
   private mateTvTouchId: number = -1;
+  private mateTvTraceMoves: number = 0;
   private mateTvTouchButton: number = -1;
   private mateTvRightMouseRelease: boolean = false;
   @State private mateTvTextOpen: boolean = false;
@@ -48,9 +49,14 @@
   }
 
   private mateTvTouch(event: TouchEvent): void {
-    if (event.type !== TouchType.Move) {
+    if (event.type === TouchType.Down) { this.mateTvTraceMoves = 0; }
+    if (event.type !== TouchType.Move || this.mateTvTraceMoves++ < 3) {
       hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch boundary type=' + event.type.toString() +
-        ' tool=' + event.sourceTool.toString() + ' count=' + event.changedTouches.length.toString());
+        ' tool=' + event.sourceTool.toString() + ' source=' + event.source.toString() +
+        ' device=' + (event.deviceId ?? -1).toString() + ' pressure=' + event.pressure +
+        ' axis=' + event.axisHorizontal + ',' + event.axisVertical +
+        ' points=' + event.changedTouches.map((point: TouchObject): string =>
+          point.id.toString() + ':' + point.x.toFixed(1) + ',' + point.y.toFixed(1) + ':' + (point.pressure ?? -1).toString()).join(';'));
     }
     // ArkUI synthesizes touch from a mouse. The mouse path owns that sequence.
     if (event.sourceTool === SourceTool.MOUSE || event.source === SourceType.Mouse) { return; }
