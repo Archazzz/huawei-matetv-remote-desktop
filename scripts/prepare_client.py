@@ -214,6 +214,29 @@ def main():
     cursor = dest / 'entry/src/main/ets/components/RemoteCursorOverlay.ets'
     cursor.write_text(replace_once(cursor.read_text(),
         '.hitTestBehavior(HitTestMode.None)', '.hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)'))
+    # The upstream mobile software path downsizes every frame to 1600px.
+    # TV quality=2 preserves source detail within a bounded 4K pixel budget;
+    # normal/low quality retain the upstream performance cap.
+    decoder = dest / 'entry/src/main/cpp/render/software_decoder.cpp'
+    decoder_text = '#include "matetv_decode_quality.h"\n' + decoder.read_text()
+    start = decoder_text.index('void computeOutputSize(')
+    end = decoder_text.index('\n#ifdef USE_FFMPEG_SOFTWARE_DECODER', start)
+    decoder_text = decoder_text[:start] + """void computeOutputSize(int srcWidth, int srcHeight, int& outWidth, int& outHeight) {
+    MateTv::outputSize(srcWidth, srcHeight,
+        MateTv::decodeQuality.load(std::memory_order_relaxed), outWidth, outHeight);
+}
+""" + decoder_text[end:]
+    decoder_text = replace_once(decoder_text, 'constexpr int kSoftwareDecodeMaxOutputEdge = 1600;\n', '')
+    decoder_text = replace_once(decoder_text, 'impl_->codecCtx->thread_count, kSoftwareDecodeMaxOutputEdge);',
+        'impl_->codecCtx->thread_count, MateTv::decodeQuality.load(std::memory_order_relaxed) == 2 ? 8192 : 1600);')
+    decoder.write_text(decoder_text)
+    bridge = dest / 'entry/src/main/cpp/rustdesk/rustdesk_bridge.cpp'
+    bridge_text = '#include "render/matetv_decode_quality.h"\n' + bridge.read_text()
+    bridge_text = replace_once(bridge_text, '            ffiCfg.imageQuality = cfg.rdImageQuality;',
+        '            MateTv::setDecodeQuality(cfg.rdImageQuality);\n            ffiCfg.imageQuality = cfg.rdImageQuality;')
+    bridge_text = replace_once(bridge_text, '            return rustdesk_set_image_quality(handle, quality);',
+        '            MateTv::setDecodeQuality(quality);\n            return rustdesk_set_image_quality(handle, quality);')
+    bridge.write_text(bridge_text)
     protocol = dest / 'rustdesk_ffi/src/protocol/session.rs'
     protocol_text = protocol.read_text()
     quality_call = 'opt.set_image_quality(Self::image_quality_from_pref(image_quality));'
