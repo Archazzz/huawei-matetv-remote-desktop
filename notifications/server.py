@@ -126,6 +126,8 @@ def load_config(path: Path) -> Config:
         if not isinstance(apps, dict) or not 1 <= len(apps) <= 20:
             raise ValueError("apps must map allowed appId to trusted appName")
         checked_apps = {identifier(k): text_field(v, 80) for k, v in apps.items()}
+        if checked_apps != {"codex": "Codex"}:
+            raise ValueError("only Codex notifications are supported")
         devices.append(Device(device_id, text_field(row["deviceName"], 80),
                               text_field(row["hostId"], 128), token, checked_apps))
         ids.add(device_id)
@@ -140,7 +142,7 @@ def load_config(path: Path) -> Config:
     if push is not None:
         exact_keys(push, {"serviceAccount", "category", "testMessage"})
         if state_path is None or type(push["testMessage"]) is not bool or \
-                push["category"] not in ("WORK", "IM", "MARKETING"):
+                push["category"] not in ("WORK", "MARKETING"):
             raise ValueError("push requires persistent state and an explicitly approved category")
         if not isinstance(push["serviceAccount"], str) or not push["serviceAccount"]:
             raise ValueError("push serviceAccount path required")
@@ -207,7 +209,7 @@ class Inbox:
                 raise
 
     def _device_still_paired(self, event: dict) -> bool:
-        return any(device.device_id == event["deviceId"] and device.host_id == event["hostId"] and
+        return event.get("appId") == "codex" and event.get("appName") == "Codex" and any(device.device_id == event["deviceId"] and device.host_id == event["hostId"] and
                    device.apps.get(event["appId"]) == event["appName"] for device in self.config.devices)
 
     def authenticate(self, authorization: str | None, tv: bool) -> Device | None:
@@ -250,7 +252,8 @@ class Inbox:
             event = dict(exact_keys(payload, EVENT_FIELDS))
             event["eventId"] = identifier(event["eventId"])
             event["appId"] = identifier(event["appId"])
-            if event["appId"] not in device.apps or event["appName"] != device.apps[event["appId"]]:
+            if event["appId"] != "codex" or event["appName"] != "Codex" or \
+                    event["appId"] not in device.apps or event["appName"] != device.apps[event["appId"]]:
                 raise RequestError(403, "source_not_allowed")
             text_field(event["appName"], 80)
             text_field(event["title"], 256, empty=True)

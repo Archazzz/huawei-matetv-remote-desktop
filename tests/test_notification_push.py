@@ -55,6 +55,44 @@ class PersistentPushTests(unittest.TestCase):
     def resolve(self, nonce, **changes):
         return {"installationId": "tv-install-1", "scope": "local", "clickNonce": nonce, **changes}
 
+    def test_restart_purges_retired_source_and_pending_clicks_with_stale_config(self):
+        self.inbox.register_push(self.registration)
+        nonce = self.publish()
+        # Model a pre-removal persisted snapshot without accepting a new event.
+        self.inbox.events[0].update(appId="wechat", appName="微信")
+        self.inbox._save()
+        stale = replace(self.config, devices=(replace(self.config.devices[0],
+                        apps={"codex": "Codex", "wechat": "微信"}),))
+        resumed = self.restart(stale)
+        self.assertEqual(resumed.events, [])
+        self.assertEqual(resumed.clicks, {})
+        self.assertEqual(resumed.jobs, [])
+        self.assertFalse(resumed.process_push_once())
+        self.assertEqual(self.sender.calls, [])
+        with self.assertRaises(RequestError):
+            resumed.resolve_push(self.resolve(nonce))
+        persisted = resumed.state.load()
+        self.assertEqual(persisted["events"], [])
+        self.assertEqual(persisted["clicks"], {})
+        self.assertEqual(persisted["jobs"], [])
+
+    def test_live_retired_event_cannot_poll_send_or_resolve(self):
+        for operation in ["poll", "send", "resolve"]:
+            with self.subTest(operation=operation):
+                self.inbox = self.restart()
+                self.inbox.register_push(self.registration)
+                self.inbox.publish(self.config.devices[0], event(operation))
+                nonce = next(iter(self.inbox.clicks))
+                self.inbox.events[0].update(appId="wechat", appName="微信")
+                if operation == "poll":
+                    self.assertEqual(self.inbox.poll(0)["events"], [])
+                elif operation == "send":
+                    self.assertFalse(self.inbox.process_push_once())
+                else:
+                    with self.assertRaises(RequestError):
+                        self.inbox.resolve_push(self.resolve(nonce))
+                self.assertEqual(self.sender.calls, [])
+
     def test_persists_event_cursor_registration_and_click_across_restart(self):
         self.assertEqual(self.inbox.register_push(self.registration), {"registered": True, "cloudConfigured": True})
         nonce = self.publish()

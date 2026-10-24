@@ -23,7 +23,7 @@ SECOND_TOKEN = "other-" + "o" * 48
 def config(max_events=1000):
     return Config("127.0.0.1", 24443, Path("missing.pem"), Path("missing.key"), TV_TOKEN,
                   (Device("mac-one", "Mac 示例", "saved-card-one", DEVICE_TOKEN,
-                          {"codex": "Codex", "wechat": "微信"}),
+                          {"codex": "Codex"}),
                    Device("mac-two", "另一台 Mac", "saved-card-two", SECOND_TOKEN,
                           {"codex": "Codex"})), max_events)
 
@@ -87,6 +87,13 @@ class InboxTests(unittest.TestCase):
             self.failure(400, event(**{key: "forged"}))
         self.failure(403, event(appId="other"))
         self.failure(403, event(appName="伪造软件"))
+
+    def test_rejects_retired_source_even_with_stale_device_allowlist(self):
+        stale = replace(self.device, apps={"codex": "Codex", "wechat": "微信"})
+        with self.assertRaises(RequestError) as result:
+            self.inbox.publish(stale, event(appId="wechat", appName="微信"))
+        self.assertEqual(result.exception.status, 403)
+        self.assertEqual(self.inbox.poll(0)["events"], [])
 
     def test_roles_and_malformed_credentials(self):
         self.assertIsNone(self.inbox.authenticate("Bearer " + TV_TOKEN, True))
@@ -229,6 +236,13 @@ class ConfigTests(unittest.TestCase):
         data["tvToken"] = "REPLACE_WITH_DIFFERENT_RANDOM_SECRET"
         with self.assertRaises(ValueError):
             self.load(data)
+
+    def test_configuration_cannot_reenable_retired_sources(self):
+        for apps in [{"wechat": "微信"}, {"codex": "Codex", "wechat": "微信"}, {"codex": "微信"}]:
+            data = self.valid()
+            data["devices"][0]["apps"] = apps
+            with self.subTest(apps=apps), self.assertRaises(ValueError):
+                self.load(data)
 
     def test_missing_tls_cannot_open_listener(self):
         with patch("notifications.server.ThreadingHTTPServer.__init__") as init:

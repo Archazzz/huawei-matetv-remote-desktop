@@ -13,8 +13,7 @@
       "hostId": "REPLACE_WITH_EXISTING_TV_HOST_ID",
       "token": "REPLACE_WITH_SEPARATE_RANDOM_DEVICE_WRITE_TOKEN",
       "apps": {
-        "codex": "Codex",
-        "wechat": "微信"
+        "codex": "Codex"
       }
     }
   ]

@@ -102,7 +102,7 @@ class HuaweiPush:
                                 "ttl": max(1, min(86400, (event["expiresAt"] - now) // 1000))}}
 
     def send(self, event: dict, registration: dict, nonce: str, now: int) -> bool:
-        if event["expiresAt"] <= now:
+        if event.get("appId") != "codex" or event.get("appName") != "Codex" or event["expiresAt"] <= now:
             return False
         payload = self.payload(event, registration, nonce, now)
         if len(compact({key: value for key, value in payload.items() if key != "target"})) > 4096:
