@@ -11,6 +11,7 @@ import { provisionTvComputers } from '../services/TvComputerProvisioning';
 struct TvHome {
   @State private computers: RemoteHost[] = [];
   @State private ready: boolean = false;
+  @State private opening: boolean = false;
   @State private error: string = '';
   @State private editing: boolean = false;
   @State private label: string = '';
@@ -21,7 +22,7 @@ struct TvHome {
   private generation: number = 0;
 
   aboutToAppear(): void { void this.refresh(); }
-  onPageShow(): void { void this.refresh(); }
+  onPageShow(): void { this.opening = false; void this.refresh(); }
   aboutToDisappear(): void { this.generation++; }
 
   private async refresh(): Promise<void> {
@@ -84,11 +85,12 @@ struct TvHome {
   }
 
   private openComputer(host: RemoteHost): void {
-    if (!this.ready) { return; }
+    if (!this.ready || this.opening) { return; }
+    this.opening = true;
     // The upstream session performs authentication and host-lock checks.
     // Never pass authenticated/preauthenticated flags from this launcher.
     router.pushUrl({ url: 'pages/RemoteDesktop', params: { hostId: host.id } })
-      .catch((): void => { this.error = '无法打开远程桌面，请重试'; });
+      .catch((): void => { this.opening = false; this.error = '无法打开远程桌面，请重试'; });
   }
 
   @Builder
@@ -156,7 +158,7 @@ struct TvHome {
                   Text('连接').fontSize(24).fontColor('#70E0C2')
                 }.padding(28).width('100%')
               }.width('100%').backgroundColor('#192A34').borderRadius(16)
-                .onClick((): void => { this.openComputer(host); })
+                .enabled(!this.opening).onClick((): void => { this.openComputer(host); })
             }, (host: RemoteHost): string => host.id)
           }.width('100%')
         }.layoutWeight(1).width('100%')

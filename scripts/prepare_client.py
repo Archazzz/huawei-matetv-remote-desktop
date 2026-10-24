@@ -64,6 +64,7 @@ def patch_session(text: str) -> str:
     members = (ROOT / 'tv/fragments/session-members.ets').read_text()
     members += (ROOT / 'tv/fragments/saved-login-members.ets').read_text()
     members += (ROOT / 'tv/fragments/display-members.ets').read_text()
+    members += (ROOT / 'tv/fragments/lifecycle-members.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
                         '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { return false; }')
@@ -83,7 +84,12 @@ def patch_session(text: str) -> str:
     text = replace_once(text, "            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');",
                         "            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
     text = replace_once(text, '  onBackPress(): boolean {',
-                        '  onBackPress(): boolean {\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }')
+                        '  onBackPress(): boolean {\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }\n    if (this.mateTvMode) { if (this.keyboardOpen) { this.dismissKeyboard(); } else { this.goBack(); } return true; }')
+    text = replace_once(text, '  private goBack(): void {',
+                        '  private goBack(): void {\n    if (this.mateTvMode) { this.mateTvLeaveSession(); return; }')
+    text = replace_once(text,
+                        "      this.windowCloseResolve?.(); this.windowCloseResolve = null;\n      hilog.info(RD_DOMAIN, RD_TAG, '[RDP-SHUTDOWN] phase=arkts-return elapsedMs=' +",
+                        "      this.windowCloseResolve?.(); this.windowCloseResolve = null;\n      this.mateTvFinishLeave();\n      hilog.info(RD_DOMAIN, RD_TAG, '[RDP-SHUTDOWN] phase=arkts-return elapsedMs=' +")
     # Preserve physical press duration; no pickup/drop mode or single-finger pan remapping.
     text = replace_once(text, '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {',
                         '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvTouchId = -1; this.mateTvTouchButton = -1; this.mateTvRightMouseRelease = false; }')
@@ -97,6 +103,11 @@ def patch_session(text: str) -> str:
     anchor = '      // Keep the file-transfer sheet on its own host.'
     addition = '''      if (this.mateTvMode && this.connected) {
         this.mateTvToolbar()
+      }
+      if (this.mateTvMode && this.mateTvLeaving) {
+        Stack() { this.mateTvLeavingPanel() }
+          .width('100%').height('100%').backgroundColor('#ED101C25')
+          .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY).zIndex(300)
       }
       if (this.mateTvMode && this.mateTvDisplayOpen) {
         Stack() { this.mateTvDisplayPanel() }
