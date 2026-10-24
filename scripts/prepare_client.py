@@ -84,20 +84,17 @@ def patch_session(text: str) -> str:
                         "            this.mateTvInitStreamDefaults();\n            this.restoreRustDeskDesktopFlipMode(this.pendingHost, 'host-restore');")
     text = replace_once(text, '  onBackPress(): boolean {',
                         '  onBackPress(): boolean {\n    if (this.mateTvDisplayOpen) { this.mateTvCloseDisplay(); return true; }\n    if (this.mateTvTextOpen) { this.mateTvCloseText(); return true; }')
-    # TV remote uses normalized click/pan. Ignore synthesized touch to avoid a
-    # second click; actual mouse and keyboard continue through upstream handlers.
+    # Preserve physical press duration; no pickup/drop mode or single-finger pan remapping.
+    text = replace_once(text, '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {',
+                        '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvTouchId = -1; this.mateTvTouchButton = -1; this.mateTvRightMouseRelease = false; }')
+    text = replace_once(text, 'const stageEligible: boolean = shouldStageRustDeskMacPhysicalMouseClick(',
+                        'const stageEligible: boolean = !this.mateTvMode && shouldStageRustDeskMacPhysicalMouseClick(')
     if text.count('.onTouch(this.handleConfiguredTouchInput)') != 2:
         raise ValueError('input surface count changed')
     text = text.replace('.onTouch(this.handleConfiguredTouchInput)',
-        '.onTouch((event: TouchEvent): void => { if (!this.mateTvMode) { this.handleConfiguredTouchInput(event); } })')
+        '.onTouch((event: TouchEvent): void => { if (this.mateTvMode) { this.mateTvTouch(event); } else { this.handleConfiguredTouchInput(event); } })')
     anchor = '        .gesture(\n          GestureGroup(GestureMode.Parallel,'
-    addition = '''        .onClick((event: ClickEvent): void => { this.mateTvClick(event); })
-        .parallelGesture(PanGesture({ fingers: 1, distance: 8 })
-          .onActionStart((event: GestureEvent): void => { this.mateTvPanStart(event); })
-          .onActionUpdate((event: GestureEvent): void => { this.mateTvPanUpdate(event); })
-          .onActionEnd((event: GestureEvent): void => { this.mateTvPanEnd(event); })
-          .onActionCancel((): void => { if (this.mateTvMode) { this.mateTvCancelDrag(); } }))
-'''
+    addition = "        .onClick((event: ClickEvent): void => { this.mateTvClick(event); })\n"
     text = replace_once(text, anchor, addition + anchor)
     anchor = '      // Keep the file-transfer sheet on its own host.'
     addition = '''      if (this.mateTvMode && this.connected) {
