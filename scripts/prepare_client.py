@@ -296,6 +296,19 @@ def main():
         '                return {result, DecoderNapi::OwnedSubmitStatus::Backpressure};',
         '                return {result, result == DecoderNapi::kDecodeHardwareKeyframeRequired ?\n                    DecoderNapi::OwnedSubmitStatus::NeedKeyframe : DecoderNapi::OwnedSubmitStatus::Backpressure};')
     hardware.write_text(hardware_text)
+    audio = dest / 'entry/src/main/cpp/audio/audio_player.cpp'
+    audio_text = '#include "matetv_pcm_level.h"\n' + audio.read_text()
+    audio_text = replace_once(audio_text,
+        '    if (writeCount <= 10 || writeCount % 100 == 0) {',
+        '    if (writeCount <= 10 || writeCount % 100 == 0) {\n'
+        '        const auto level = MateTv::pcmLevel(data, size);\n'
+        '        OH_LOG_INFO(LOG_APP, "[MateTvAudioLevel] stage=input peak=%{public}u rms=%{public}u", level.peak, level.rms);')
+    audio_text = replace_once(audio_text,
+        '        if (fillCount <= 10 || fillCount % 200 == 0) {',
+        '        if (fillCount <= 10 || fillCount % 200 == 0) {\n'
+        '            const auto level = MateTv::pcmLevel(out, static_cast<size_t>(audioDataSize));\n'
+        '            OH_LOG_INFO(LOG_APP, "[MateTvAudioLevel] stage=output peak=%{public}u rms=%{public}u", level.peak, level.rms);')
+    audio.write_text(audio_text)
     runtime = dest / 'rustdesk_ffi/src/lib.rs'
     runtime_text = runtime.read_text()
     runtime_text = replace_once(runtime_text,

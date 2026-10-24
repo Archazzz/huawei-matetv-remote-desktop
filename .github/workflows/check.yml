@@ -27,6 +27,7 @@ jobs:
       - run: python scripts/prepare_client.py
       - run: node --test tests/tv-runtime.test.cjs
       - run: python scripts/test_decoder_recovery.py
+      - run: c++ -std=c++17 tests/tv-audio-level.test.cpp -o /tmp/tv-audio-test && /tmp/tv-audio-test
       - run: c++ -std=c++17 tests/tv-decode-quality.test.cpp -o /tmp/tv-decode-test && /tmp/tv-decode-test
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --manifest-path .work/client/rustdesk_ffi/Cargo.toml --no-default-features protocol::session
