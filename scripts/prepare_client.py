@@ -57,9 +57,13 @@ def patch_session(text: str) -> str:
     text = replace_once(text, "import { pasteboard, BusinessError } from '@kit.BasicServicesKit';",
                         "import { pasteboard, BusinessError, deviceInfo } from '@kit.BasicServicesKit';")
     members = (ROOT / 'tv/fragments/session-members.ets').read_text()
+    members += (ROOT / 'tv/fragments/saved-login-members.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
                         '  private canForwardInput(source: string): boolean {\n    if (this.mateTvTextOpen && source !== \'matetv-submit-text\') { return false; }')
+    text = replace_once(text,
+                        "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            this.openRustDeskAuthSheet();",
+                        "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            if (!this.mateTvTrySavedPassword()) { this.openRustDeskAuthSheet(); }")
     text = replace_once(text, '  private handleXComponentKey = (event: KeyEvent): boolean => {',
                         '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen) { return false; }')
     text = replace_once(text, '  aboutToDisappear(): void {',
