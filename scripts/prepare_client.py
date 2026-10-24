@@ -67,7 +67,10 @@ def patch_session(text: str) -> str:
     members += (ROOT / 'tv/fragments/lifecycle-members.ets').read_text()
     members += (ROOT / 'tv/fragments/viewport-members.ets').read_text()
     members += (ROOT / 'tv/fragments/corner-controls.ets').read_text()
+    members += (ROOT / 'tv/fragments/video-watchdog.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
+    text = replace_once(text, '      this.syncRustDeskPeerInputState(sessionId);',
+                        '      this.mateTvCheckVideoProgress();\n      this.syncRustDeskPeerInputState(sessionId);')
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
                         '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { if (source !== \'mouse\' && source !== \'mouseMove\') { hilog.info(RD_DOMAIN, RD_TAG, \'dropInput \' + source + \' tvPanel=1 \' + this.sessionInputOwner.debugString()); } return false; }')
     text = replace_once(text,
@@ -250,6 +253,19 @@ def main():
         '    napi_set_named_property(env, exports, "setRustDeskImageQuality", fn);\n'
         '    napi_create_function(env, "setMateTvSourceResolution", NAPI_AUTO_LENGTH, NapiSetMateTvSourceResolution, nullptr, &fn);\n'
         '    napi_set_named_property(env, exports, "setMateTvSourceResolution", fn);')
+    napi_text = replace_once(napi_text, '    std::atomic<uint64_t> ingressFrames {0};',
+        '    std::atomic<uint64_t> hardwareRefreshAtMs {0};\n    std::atomic<uint64_t> ingressFrames {0};')
+    napi_text = replace_once(napi_text,
+        '        if (ret == DecoderNapi::kDecodeHardwareKeyframeRequired) {\n            const bool requested',
+        '        const uint64_t refreshNow = static_cast<uint64_t>(std::chrono::duration_cast<\n'
+        '            std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());\n'
+        '        uint64_t refreshBefore = session->diagnostics.hardwareRefreshAtMs.load();\n'
+        '        if (ret == DecoderNapi::kDecodeHardwareKeyframeRequired &&\n'
+        '            (refreshBefore == 0 || refreshNow - refreshBefore >= 2000) &&\n'
+        '            session->diagnostics.hardwareRefreshAtMs.compare_exchange_strong(refreshBefore, refreshNow)) {\n'
+        '            const bool requested')
+    napi_text = replace_once(napi_text, 'session, "hardware_decode_queue_overflow"',
+        'session, "hardware_compressed_frame_gap"')
     napi.write_text(napi_text)
     native_types = dest / 'entry/src/main/cpp/types/librdpnapi/index.d.ts'
     native_types.write_text(replace_once(native_types.read_text(),
@@ -258,6 +274,18 @@ def main():
         '  export function setMateTvSourceResolution(source: boolean): boolean;'))
     hardware = dest / 'entry/src/main/cpp/render/hw_decoder.cpp'
     hardware_text = hardware.read_text()
+    # RustDesk must preserve the same compressed-frame dependency chain as
+    # Moonlight: a transient ownership lock must not silently lose an HEVC P-frame.
+    hardware_text = replace_once(hardware_text,
+        '    if (expectedDecoderGeneration != 0U) {\n        constexpr auto kOwnedFrameLockBudget',
+        '    if (expectedDecoderGeneration != 0U || frame.codec == CodecType::H264 || frame.codec == CodecType::H265) {\n        constexpr auto kOwnedFrameLockBudget')
+    hardware_text = replace_once(hardware_text,
+        '        return {-1, DecoderNapi::OwnedSubmitStatus::Backpressure};',
+        '        if (expectedDecoderGeneration == 0U &&\n'
+        '            (frame.codec == CodecType::H264 || frame.codec == CodecType::H265)) {\n'
+        '            return {DecoderNapi::kDecodeHardwareKeyframeRequired, DecoderNapi::OwnedSubmitStatus::NeedKeyframe};\n'
+        '        }\n'
+        '        return {-1, DecoderNapi::OwnedSubmitStatus::Backpressure};')
     hardware_text = replace_once(hardware_text,
         '            admission == Render::VideoFrameAdmission::AcceptAfterSoftDrop &&',
         '            (admission == Render::VideoFrameAdmission::AcceptAfterSoftDrop ||\n             admission == Render::VideoFrameAdmission::DropAndWaitForKeyframe) &&')

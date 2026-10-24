@@ -44,3 +44,44 @@ binary = output.with_suffix('')
 subprocess.run(['c++','-std=c++17','-pthread','-I'+str(cpp),str(output),str(cpp/'render/video_backpressure_controller.cpp'),'-o',str(binary)],check=True)
 subprocess.run([str(binary)],check=True)
 print('Native overflow requests one keyframe; resumes after IDR; repeated overflow recovers.')
+
+# Exercise the actual lock-miss branch: dropping a compressed reference frame
+# must ask RustDesk for a new IDR, while the generation-owned caller retains its
+# existing backpressure contract.
+start = source.index('    if (!pipelineLock.owns_lock()) {', source.index('OwnedDecodeOutcome DecodeNativeForOwnerOutcome'))
+end = source.index('\n    if (!decoderLease->ownerActive', start)
+branch = source[start:end]
+program = r'''
+#include <cassert>
+#include <mutex>
+#define LOG_APP 0
+#define OH_LOG_DEBUG(...) ((void)0)
+enum class CodecType { H264, H265, VP9 };
+namespace DecoderNapi {
+constexpr int kDecodeHardwareKeyframeRequired = 2;
+enum class OwnedSubmitStatus { Backpressure, NeedKeyframe };
+}
+struct Outcome { int legacy; DecoderNapi::OwnedSubmitStatus status; };
+struct Frame { CodecType codec; };
+Outcome miss(unsigned expectedDecoderGeneration, CodecType codec) {
+    std::mutex mutex;
+    std::unique_lock<std::mutex> pipelineLock(mutex, std::defer_lock);
+    Frame frame {codec};
+    BRANCH
+    assert(false);
+    return {};
+}
+int main() {
+    for (auto codec : {CodecType::H264, CodecType::H265}) {
+        auto out = miss(0,codec);
+        assert(out.legacy == DecoderNapi::kDecodeHardwareKeyframeRequired);
+        assert(out.status == DecoderNapi::OwnedSubmitStatus::NeedKeyframe);
+        assert(miss(42,codec).status == DecoderNapi::OwnedSubmitStatus::Backpressure);
+    }
+    assert(miss(0,CodecType::VP9).legacy == -1);
+}
+'''.replace('BRANCH', branch)
+output.write_text(program)
+subprocess.run(['c++','-std=c++17','-pthread',str(output),'-o',str(binary)],check=True)
+subprocess.run([str(binary)],check=True)
+print('H.264/H.265 ownership contention requests a keyframe; generation-owned contract preserved.')

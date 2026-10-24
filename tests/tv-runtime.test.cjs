@@ -421,3 +421,38 @@ test('TV frame-rate choices accept 120 FPS independently of quality', () => {
   }
   assert.equal(context.normalizeRustDeskFps(500), 0);
 });
+
+test('Video watchdog recovers continuous ingress without presentation, stays quiet on idle/background and bounds retries', () => {
+  let now = 10000;
+  const context = vm.createContext({ Date: { now: () => now }, hilog: { warn() {} }, RD_DOMAIN: 0, RD_TAG: 'test' });
+  vm.runInContext(stripTypeScriptTypes('class Watchdog {\n' + read('tv/fragments/video-watchdog.ets') + '\n}\nglobalThis.Watchdog = Watchdog;'), context);
+  const page = new context.Watchdog();
+  const stats = { sessionActive: true, sessionId: 1, decoderGeneration: 1, rendererGeneration: 1,
+    width: 1920, height: 1080, receivedFrames: 100, presentedFrames: 100 };
+  let refresh = 0, recreate = 0, foreground = true;
+  Object.assign(page, { mateTvMode: true, connected: true, sessionId: 1, connectAttemptId: 1,
+    surfaceReady: true, mateTvLeaving: false, rustDeskDisplaySwitchState: {inputBlocked: false},
+    remoteKeyboardForeground: () => foreground,
+    loader: { getSessionDiagnostics: () => stats, requestFrameRefresh() { refresh++; return {ok:true}; },
+      requestDecoderRecovery() { recreate++; return true; } } });
+  const tick = (receive = true, present = false) => { now += 1000; if (receive) stats.receivedFrames += 60;
+    if (present) stats.presentedFrames += 60; page.mateTvCheckVideoProgress(); };
+  page.mateTvCheckVideoProgress();
+  for(let i=0;i<20;i++) tick(false); // static desktop isn't a freeze
+  assert.equal(refresh,0);
+  for(let i=0;i<4;i++) tick();
+  assert.equal(refresh,1);
+  for(let i=0;i<30;i++) tick();
+  assert.equal(refresh,2); assert.equal(recreate,1); // no endless rebuild loop
+  for(let i=0;i<32;i++) tick(true,true); // sustained recovery re-arms a later incident
+  foreground=false;
+  for(let i=0;i<12;i++) tick();
+  assert.equal(refresh,2);
+  foreground=true; tick();
+  for(let i=0;i<3;i++) tick();
+  assert.equal(refresh,2); // foreground grace period
+  tick(); assert.equal(refresh,3);
+  stats.sessionId=2;
+  for(let i=0;i<12;i++) tick();
+  assert.equal(refresh,3); // stale owner's diagnostics cannot recover another session
+});
