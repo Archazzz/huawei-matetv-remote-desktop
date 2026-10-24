@@ -1,23 +1,23 @@
 # 可选华为后台通道
 
-代码已实现并已部署：自有应用获取 Token、TLS 登记及其他视频应用前台期间的系统通知中心到达已实测。通知中心点击后直达 Mac mini 已实测；用户在多个应用及视频播放中开启横幅和置顶后，仍未见可靠横幅。真实微信仍待验收。服务不搜索 AGC、浏览器登录态或上游客户端的凭据。未配置 `push` 不访问云推送服务；只有显式配置、TV 登记和新事件到达后才排队发送。本次真实通道已在用户接受 Push 协议并同意来源、标题、正文经华为转发后启用；新部署仍须确认对应用户的数据转发意愿。
+代码已实现并已部署：自有应用获取 Token、TLS 登记及其他视频应用前台期间的系统通知中心到达已实测。通知中心点击后直达 Mac mini 已实测；用户在多个应用及视频播放中开启横幅和置顶后，仍未见可靠横幅。通知来源现仅 Codex，微信已按用户隐私要求撤除。服务不搜索 AGC、浏览器登录态或上游客户端的凭据。未配置 `push` 不访问云推送服务；只有显式配置、TV 登记和新事件到达后才排队发送。本次真实通道已在用户接受 Push 协议并同意来源、标题、正文经华为转发后启用；新部署仍须确认对应用户的数据转发意愿。
 
 ## 配置
 
-自有项目开通 Push Kit、重新签名并准备好服务账号后，在本地完整配置中合入以下调试片段：
+自有项目开通 Push Kit、重新签名并准备好服务账号后，在本地完整配置中合入以下正式发送片段（WORK 须实际获批）：
 
 ```json
 {
   "statePath": "notification-state.sqlite",
   "push": {
     "serviceAccount": "huawei-push-service-account.json",
-    "category": "MARKETING",
-    "testMessage": true
+    "category": "WORK",
+    "testMessage": false
   }
 }
 ```
 
-这是配置片段，也对应当前已验证的调试类别。正式自分类权益 WORK、IM 已于 2026-10-25 经用户授权提交，提交时状态为“审核中”；`WORK` 或 `IM` 必须实际获批，不能由配置字段替代审核。当前支持显式选择 WORK、IM 或 MARKETING。`testMessage:true` 使用官方测试频控，不代表正式权益。服务账号文件需 0600，字段包含 `project_id/key_id/sub_account/private_key`，仅存 `local/`；其中私钥为 PEM 格式。
+这是配置片段，也对应当前运行类别。WORK 已获批，运行配置为 `WORK`、`testMessage:false`，本地检查和中转重启通过。IM 权益已从华为控制台删除并确认立即失效，列表仅剩 WORK；服务端仅接受 WORK 或 MARKETING。`WORK` 必须实际获批，不能由字段替代审核。调试时可显式使用 `testMessage:true`，测试频控不是正式权益。服务账号文件需 0600，字段包含 `project_id/key_id/sub_account/private_key`，仅存 `local/`；其中私钥为 PEM 格式。
 
 PS256 通过系统 `/usr/bin/openssl` 签名，无全局 Python 包依赖。私钥只临时写入 0600 文件签名后删除，不进入命令参数或日志。JWT 使用 `kid=key_id`、`iss=sub_account`、官方 aud 和 3600 秒有效期，直接作为 V3 Bearer。启动或 `cli check` 只验证本地签名；使用固定 HTTPS 华为端点、系统 CA、禁止重定向，不跟随环境代理。
 
@@ -56,10 +56,10 @@ PS256 通过系统 `/usr/bin/openssl` 签名，无全局 Python 包依赖。私�
 - 自有 HarmonyOS 智慧屏应用及项目已注册，Push 已开通；新 Profile 含 `com.huawei.service.push.base_service`。
 - 专用项目开发角色服务账号经用户授权创建，文件权限 0600，实际凭据的 PS256 本地签验通过；未将凭据提交到仓库。
 - 用户批准备份后的签名身份迁移，新 HAP 已构建并安装；数据库检查通过，4 台电脑和 4 份已保存密码仅按计数核验，数据库与 12 个偏好文件回读哈希一致，首页四卡截图确认。
-- TV `getToken()` 成功并经 TLS 登记，状态为 `hasToken=true`，未输出 Token。项目数据处理位置为中国，当前采用 `MARKETING`、`testMessage:true`。
+- TV `getToken()` 成功并经 TLS 登记，状态为 `hasToken=true`，未输出 Token。项目数据处理位置为中国；早期通道验证使用 `MARKETING`、`testMessage:true`，当前已切换获批 WORK 正式发送。
 - 用户确认在其他视频应用期间通知中心收到合成云通知。用户点击通知后已成功连接 Mac mini。用户随后在多个应用及视频中测试，开启横幅和置顶后仍未出现可靠弹窗；早先“看到了横幅”的反馈已被用户纠正，不能记为通过。
 
-当前未通过：跨应用及视频上方横幅。待实测：获批类别下的横幅、前台去重、进程未运行时冷启动、点击切换已有远控会话、离线与撤销的系统展示行为。微信独立助手已获完全磁盘访问授权并正在监听，但尚未完成真实微信到电视验收。WORK 与 IM 已授权申请，提交时均为审核中；当前测试通道不代表不限量正式推送。
+当前未通过：跨应用及视频上方横幅。待实测：WORK 正式类别下的横幅、前台去重、进程未运行时冷启动、点击切换已有远控会话、离线与撤销的系统展示行为。微信助手、监听器和探针已移除，相关授权和本地配置已撤销；不再接入个人消息。历史和点击的清理机制见 [仅 Codex 的升级清理](README.md#仅-codex-的升级清理)。
 
 官方依据见 [后台能力核验](../docs/notification-background-research.md)。发送结构采用 Huawei V3 的 `payload.notification`、`target.token`、`pushOptions`；`clickAction.data` 是对象。成功响应依据 [场景化消息响应](https://developer.huawei.com/consumer/cn/doc/doccenter-references/api/push-scenariozed-api-response)，页面更新 2026-09-30。
 
@@ -67,4 +67,4 @@ PS256 通过系统 `/usr/bin/openssl` 签名，无全局 Python 包依赖。私�
 
 官方分类表将 `MARKETING` 定义为“静默通知，仅在通知中心（更多通知）里展示消息”。本地当前仍采用该类别；`testMessage:true` 只提供测试频控，文档没有承诺它会赋予服务与通讯类提醒方式。该限制与用户每条都收到、视频上方不弹出的现象一致，但尚未隔离电视全屏策略等其他因素。
 
-每分钟合成测试自动化已停止并删除。下一次有意义的对照应在分类权益获批后，按真实且获批的来源选择类别，再分别测试桌面、普通应用和全屏视频；不能在未获批时只改 category 便声称修好。当前配置为全局类别，后续多来源分类须先实现来源／场景选择，不能将全部微信通知统一冒充 IM。
+每分钟合成测试自动化已停止并删除。WORK 已获批，下一次对照应使用 Codex 真实任务场景，分别测试桌面、普通应用和全屏视频。当前仅支持 Codex，使用全局 WORK 类别；不能把类别切换或审批通过称为横幅已修复。
