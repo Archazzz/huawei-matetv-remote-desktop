@@ -7,6 +7,7 @@
   @State private mateTvTextError: string = '';
   private mateTvPanY: number = 0;
   private mateTvTextSession: number = -1;
+  private mateTvTextAttempt: number = -1;
 
   private mateTvClick(event: ClickEvent): void {
     // onMouse already forwards physical clicks. Ignore their synthesized click.
@@ -64,6 +65,7 @@
     this.mateTvCancelDrag();
     this.dismissKeyboard();
     this.mateTvTextSession = this.sessionId;
+    this.mateTvTextAttempt = this.connectAttemptId;
     this.mateTvText = '';
     this.mateTvTextError = '';
     this.sessionInputOwner.appeared('MateTvText');
@@ -75,22 +77,31 @@
     this.mateTvText = '';
     this.mateTvTextError = '';
     this.mateTvTextSession = -1;
+    this.mateTvTextAttempt = -1;
     this.sessionInputOwner.disappeared('MateTvText');
   }
 
   private mateTvSubmitText(): void {
     if (!this.connected || this.cleanupStarted || this.sessionId <= 0 ||
-        this.sessionId !== this.mateTvTextSession) {
+        this.sessionId !== this.mateTvTextSession || this.connectAttemptId !== this.mateTvTextAttempt) {
       this.mateTvTextError = '连接已变化，请关闭面板并重新选择输入位置';
       return;
     }
     if (this.mateTvText.length === 0) { return; }
-    if (!this.loader.sendTextAccepted(this.sessionId, this.mateTvText)) {
-      this.mateTvTextError = '当前连接未接受文字，内容已保留。可以改用外接键盘。';
-      return;
-    }
-    // Successful submission consumes this draft. Never replay after reconnect.
-    this.mateTvCloseText();
+    this.sessionInputOwner.runAction((): void => {
+      // Explicit submission may pass our draft overlay, but still respects
+      // lifecycle, authentication, view-only and remote permission gates.
+      if (!this.canForwardInput('matetv-submit-text')) {
+        this.mateTvTextError = '当前连接不允许输入，请检查连接状态和电脑控制权限';
+        return;
+      }
+      if (!this.loader.sendTextAccepted(this.sessionId, this.mateTvText)) {
+        this.mateTvTextError = '当前连接未接受文字，内容已保留。可以改用外接键盘。';
+        return;
+      }
+      // Successful submission consumes this draft. Never replay after reconnect.
+      this.mateTvCloseText();
+    });
   }
 
   @Builder

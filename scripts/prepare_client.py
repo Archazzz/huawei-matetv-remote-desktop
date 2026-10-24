@@ -29,7 +29,7 @@ def patch_session(text: str) -> str:
     members = (ROOT / 'tv/fragments/session-members.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
-                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvTextOpen) { return false; }')
+                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvTextOpen && source !== \'matetv-submit-text\') { return false; }')
     text = replace_once(text, '  private handleXComponentKey = (event: KeyEvent): boolean => {',
                         '  private handleXComponentKey = (event: KeyEvent): boolean => {\n    if (this.mateTvTextOpen) { return false; }')
     text = replace_once(text, '  aboutToDisappear(): void {',
