@@ -90,6 +90,12 @@ def patch_session(text: str) -> str:
     text = replace_once(text,
                         "      this.windowCloseResolve?.(); this.windowCloseResolve = null;\n      hilog.info(RD_DOMAIN, RD_TAG, '[RDP-SHUTDOWN] phase=arkts-return elapsedMs=' +",
                         "      this.windowCloseResolve?.(); this.windowCloseResolve = null;\n      this.mateTvFinishLeave();\n      hilog.info(RD_DOMAIN, RD_TAG, '[RDP-SHUTDOWN] phase=arkts-return elapsedMs=' +")
+    text = replace_once(text,
+                        ".width(this.shouldShowRustDeskMultiCanvasPreview() ? '50%' : '100%').height('100%')",
+                        ".width(this.mateTvTextOpen ? '68%' : (this.shouldShowRustDeskMultiCanvasPreview() ? '50%' : '100%')).height('100%')")
+    text = replace_once(text,
+                        ".align(this.shouldShowRustDeskMultiCanvasPreview() ? Alignment.Start : Alignment.Center)",
+                        ".align(this.mateTvTextOpen || this.shouldShowRustDeskMultiCanvasPreview() ? Alignment.Start : Alignment.Center)")
     # Preserve physical press duration; no pickup/drop mode or single-finger pan remapping.
     text = replace_once(text, '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {',
                         '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvTouchId = -1; this.mateTvTouchButton = -1; this.mateTvRightMouseRelease = false; }')

@@ -14,6 +14,7 @@
   private mateTvTextSession: number = -1;
   private mateTvTextAttempt: number = -1;
   private mateTvTextFocusGeneration: number = 0;
+  private mateTvTextAvoidMode: KeyboardAvoidMode | null = null;
 
   private mateTvObserveMouse(event: MouseEvent): boolean {
     if (!this.mateTvMode) { return false; }
@@ -162,6 +163,11 @@
     this.mateTvText = '';
     this.mateTvTextError = '';
     this.sessionInputOwner.appeared('MateTvText');
+    try {
+      const ui = this.getUIContext();
+      this.mateTvTextAvoidMode = ui.getKeyboardAvoidMode();
+      ui.setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    } catch (_error) {}
     this.mateTvTextOpen = true;
   }
 
@@ -174,6 +180,10 @@
     this.mateTvTextSession = -1;
     this.mateTvTextAttempt = -1;
     if (wasOpen) { void inputMethod.getController().stopInputSession().catch((): void => {}); }
+    if (this.mateTvTextAvoidMode !== null) {
+      try { this.getUIContext().setKeyboardAvoidMode(this.mateTvTextAvoidMode); } catch (_error) {}
+      this.mateTvTextAvoidMode = null;
+    }
     this.sessionInputOwner.disappeared('MateTvText');
   }
 
@@ -268,11 +278,11 @@
           .backgroundColor('#243640').fontColor('#F4F8FA').borderRadius(8)
           .onClick((): void => { this.mateTvCloseText(); })
       }.width('100%')
-      Text('长按语音键尝试听写；若打开小艺，请显示键盘。')
+      Text('键盘显示时长按语音键听写，确认后输入到电脑。')
         .fontSize(15).fontColor('#B1C2CA').width('100%')
       TextArea({ text: this.mateTvText, placeholder: '输入或听写…' })
-        .id('MateTvTextDraft').height(120).width('100%').fontSize(18).maxLength(8000)
-        .enableKeyboardOnFocus(false)
+        .id('MateTvTextDraft').height(90).width('100%').fontSize(18).maxLength(8000)
+        .enableKeyboardOnFocus(true)
         .onAppear((): void => { this.mateTvFocusText(); })
         .onFocus((): void => { hilog.info(RD_DOMAIN, RD_TAG, 'MateTV draft focused'); })
         .onChange((value: string): void => { this.mateTvText = value; })
@@ -295,5 +305,5 @@
         .onClick((): void => { this.mateTvSubmitText(); })
       Text('不会自动按回车').fontSize(13).fontColor('#B1C2CA')
     }.width(340).constraintSize({ maxWidth: '44%' }).padding(18)
-      .backgroundColor('#F5192A34').borderRadius(14).margin({ top: 70, right: 20 })
+      .backgroundColor('#F5192A34').borderRadius(14).margin({ top: 16, right: 20 })
   }
