@@ -14,7 +14,7 @@
 
   private mateTvObserveMouse(event: MouseEvent): boolean {
     if (!this.mateTvMode) { return false; }
-    if (event.sourceTool === SourceTool.Finger) { return true; }
+    if (event.sourceTool === SourceTool.Finger || this.mateTvTouchId >= 0) { return true; }
     if (event.action === MouseAction.Press || event.action === MouseAction.Release) {
       this.mateTvButtonAt = Date.now();
     }
@@ -57,7 +57,12 @@
       this.mateTvTouchButton = this.mateTvRightClick ? 2 : 0;
       this.mateTvRightClick = false;
       this.discardPendingMouseMove();
-      this.sendMouseNow(point.x, point.y, this.mateTvTouchButton, true);
+      if (shouldStageRustDeskMacPhysicalMouseClick(
+        this.currentProtocolName(), this.physicalKeyboardLayout, true, this.mateTvTouchButton)) {
+        this.stagePhysicalMouseClick(touch.x, touch.y, point.x, point.y, this.mateTvTouchButton);
+      } else {
+        this.sendMouseNow(point.x, point.y, this.mateTvTouchButton, true);
+      }
       hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch down button=' + this.mateTvTouchButton.toString());
       return;
     }
@@ -66,12 +71,30 @@
       const touch: TouchObject = event.changedTouches[index];
       if (touch.id !== this.mateTvTouchId) { continue; }
       const point: MappedPoint = this.mapInputPoint(touch.x, touch.y);
-      if (event.type === TouchType.Move) {
-        this.queueMouseMove(point.x, point.y);
-      } else if (event.type === TouchType.Up) {
-        // Flush actual movement, but never manufacture MOVE between a stationary DOWN/UP.
-        this.flushMouseMove();
-        this.sendMouseNow(point.x, point.y, this.mateTvTouchButton, false);
+      if (event.type === TouchType.Move || event.type === TouchType.Up) {
+        if (this.physicalMouseClickPending && !this.physicalMouseRemoteDownSent) {
+          this.promotePhysicalMouseClickToDrag(touch.x, touch.y, point.x, point.y, 'matetv-touch');
+        } else if (event.type === TouchType.Move) {
+          this.queueMouseMove(point.x, point.y);
+        }
+      }
+      if (event.type === TouchType.Up) {
+        if (this.physicalMouseClickPending && !this.physicalMouseRemoteDownSent) {
+          // A Mac click must be adjacent DOWN/UP at the original target.
+          // Sensor jitter is not a drag; real movement promotes the held press above.
+          this.discardPendingMouseMove();
+          this.sendMouseNow(this.physicalMousePressX, this.physicalMousePressY, this.mateTvTouchButton, true);
+          this.sendMouseNow(this.physicalMousePressX, this.physicalMousePressY, this.mateTvTouchButton, false);
+          hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch completed Mac click');
+        } else {
+          if (this.physicalMouseClickPending && this.physicalMouseRemoteDownSent) {
+            this.queueMouseMove(point.x, point.y);
+          }
+          this.flushMouseMove();
+          this.sendMouseNow(point.x, point.y, this.mateTvTouchButton, false);
+        }
+        this.clearPhysicalMouseClickTransaction();
+        this.physicalMouseDownButton = -1;
         this.mateTvTouchId = -1;
         this.mateTvTouchButton = -1;
         hilog.info(RD_DOMAIN, RD_TAG, 'MateTV touch up');

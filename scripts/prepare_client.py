@@ -87,8 +87,6 @@ def patch_session(text: str) -> str:
     # Preserve physical press duration; no pickup/drop mode or single-finger pan remapping.
     text = replace_once(text, '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {',
                         '  private releaseAllHeldKeys(releaseMouseButtons: boolean = true): void {\n    if (this.mateTvMode && releaseMouseButtons) { this.mateTvTouchId = -1; this.mateTvTouchButton = -1; this.mateTvRightMouseRelease = false; }')
-    text = replace_once(text, 'const stageEligible: boolean = shouldStageRustDeskMacPhysicalMouseClick(',
-                        'const stageEligible: boolean = !this.mateTvMode && shouldStageRustDeskMacPhysicalMouseClick(')
     if text.count('.onTouch(this.handleConfiguredTouchInput)') != 2:
         raise ValueError('input surface count changed')
     text = text.replace('.onTouch(this.handleConfiguredTouchInput)',
