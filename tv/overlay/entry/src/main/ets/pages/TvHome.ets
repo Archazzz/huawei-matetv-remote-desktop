@@ -4,6 +4,7 @@ import { AccountSessionCoordinator } from '../services/AccountSessionCoordinator
 import { HostSyncService } from '../services/HostSyncService';
 import { CloudStore } from '../services/CloudStore';
 import { RemoteHost } from '../model/RemoteHost';
+import { provisionTvComputers } from '../services/TvComputerProvisioning';
 
 @Entry
 @Component
@@ -34,6 +35,7 @@ struct TvHome {
       await this.service.init(context);
       if (!CloudStore.getInstance().isReady()) { throw new Error('本机存储尚未就绪'); }
       if (generation !== this.generation) { return; }
+      provisionTvComputers(context);
       this.computers = this.service.getAllHosts().filter((h: RemoteHost): boolean => h.protocol === 'rustdesk');
       this.ready = true;
       this.error = '';

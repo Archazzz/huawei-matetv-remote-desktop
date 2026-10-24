@@ -17,6 +17,36 @@ ROOT = Path(__file__).resolve().parents[1]
 PIN = json.loads((ROOT / 'tv/upstream.json').read_text())
 
 
+def computer_presets(path: Path) -> str:
+    """Validate a private, credential-free list before embedding it in a local HAP."""
+    items = json.loads(path.read_text())
+    if not isinstance(items, list) or len(items) > 20:
+        raise ValueError('computers must be an array with at most 20 entries')
+    ids = set()
+    endpoints = set()
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {'id', 'label', 'address', 'port'}:
+            raise ValueError('each computer requires only id, label, address and port; credentials are forbidden')
+        if not isinstance(item['id'], str) or not re.fullmatch(r'[a-z0-9_-]{1,64}', item['id']):
+            raise ValueError('computer id must be a stable lowercase identifier')
+        if not isinstance(item['label'], str) or not 1 <= len(item['label'].strip()) <= 60:
+            raise ValueError('computer label must contain 1–60 characters')
+        address = item['address']
+        if not isinstance(address, str) or not 1 <= len(address) <= 253 or re.search(r'[\s/\\?#@]', address):
+            raise ValueError('invalid computer address; use a bare IP or hostname')
+        if type(item['port']) is not int or not 1 <= item['port'] <= 65535:
+            raise ValueError('computer port must be an integer in 1–65535')
+        endpoint = (address.lower(), item['port'])
+        if item['id'] in ids or endpoint in endpoints:
+            raise ValueError('duplicate computer id or endpoint')
+        ids.add(item['id'])
+        endpoints.add(endpoint)
+    return ('// PRIVATE GENERATED BUILD CONFIGURATION. Do not publish this file or HAP.\n'
+            'export interface TvComputerPreset { id: string; label: string; address: string; port: number; }\n'
+            'export const TV_COMPUTER_PRESETS: TvComputerPreset[] = ' +
+            json.dumps(items, ensure_ascii=True, indent=2) + ';\n')
+
+
 def replace_once(text: str, before: str, after: str) -> str:
     if text.count(before) != 1:
         raise ValueError(f'upstream patch anchor changed: {before[:100]!r}')
@@ -67,7 +97,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive', type=Path, help='use a previously downloaded pinned GitHub tarball')
     parser.add_argument('--output', type=Path, default=ROOT / '.work/client')
+    parser.add_argument('--computers', type=Path, help='private JSON computer list to import once on the TV (no passwords)')
     args = parser.parse_args()
+    presets = computer_presets(args.computers) if args.computers else None
     dest = args.output.resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
     archive = args.archive or ROOT / '.work' / (PIN['commit'] + '.tar.gz')
@@ -94,6 +126,8 @@ def main():
             preserved[rel] = (dest / rel).read_bytes()
     shutil.copytree(upstream, dest, dirs_exist_ok=True)
     shutil.copytree(ROOT / 'tv/overlay', dest, dirs_exist_ok=True)
+    if presets is not None:
+        (dest / 'entry/src/main/ets/services/TvProvisionedComputers.ets').write_text(presets)
     module = dest / 'entry/src/main/module.json5'
     text = module.read_text()
     text, count = re.subn(r'"deviceTypes"\s*:\s*\[[^\]]+\]', '"deviceTypes": ["tv"]', text, count=1)
