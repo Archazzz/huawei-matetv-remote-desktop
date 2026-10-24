@@ -469,6 +469,7 @@ def patch_session(text: str) -> str:
         this.restoreInProgress = false;
         return;
       }''')
+    text = "import { TvSettingsTokens } from '../theme/TvSettingsTokens';\nimport { TvSettingsSection } from '../components/TvSettingsSection';\nimport { TvSettingsPane } from '../components/TvSettingsPane';\nimport { TvControlLayoutPreview } from '../components/TvControlLayoutPreview';\n" + text
     text = "import { TvRemoteActionChoice, TV_REMOTE_KEY_ACTIONS, TvRemoteKeyProfile, TvRemoteDevice, TvRemoteKeyDecision, TvRemoteKeyPolicy, defaultTvRemoteKeyProfile, parseTvRemoteKeyProfile, tvRemoteDeviceFingerprint, resolveTvRemoteDevice, tvRemoteDirectionIndex, tvRemoteActionValid, tvRemoteActionKeys, tvRemoteVoiceCandidate, tvRemoteGestureActionValid } from '../services/TvRemoteKeyPolicy';\n" + text
     text = "import { TvNotificationService } from '../services/notifications/TvNotificationService';\n" + text
     text = "import { TV_COMPUTER_PRESETS, TvComputerPreset } from '../services/TvProvisionedComputers';\n" + text
@@ -482,6 +483,9 @@ def patch_session(text: str) -> str:
     members += (ROOT / 'tv/fragments/saved-login-members.ets').read_text()
     members += (ROOT / 'tv/fragments/display-members.ets').read_text()
     members += (ROOT / 'tv/fragments/remote-key-members.ets').read_text()
+    members += (ROOT / 'tv/fragments/remote-key-settings.ets').read_text()
+    members += (ROOT / 'tv/fragments/settings-panel.ets').read_text()
+    members += (ROOT / 'tv/fragments/layout-settings.ets').read_text()
     members += (ROOT / 'tv/fragments/lifecycle-members.ets').read_text()
     members += (ROOT / 'tv/fragments/resume-members.ets').read_text()
     members += (ROOT / 'tv/fragments/notification-members.ets').read_text()

@@ -22,6 +22,10 @@ export class TvSettingsTokens {
 
   static readonly controlHeight: number = 46;
   static readonly controlRadius: number = 10;
+  static readonly panelWidth: string = '76%';
+  static readonly panelHeight: string = '82%';
+  static readonly tabHeight: number = 52;
+  static readonly labelWidth: number = 132;
   static readonly panelPadding: number = 22;
   static readonly panelRadius: number = 20;
 }
