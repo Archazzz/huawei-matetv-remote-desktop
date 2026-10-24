@@ -68,7 +68,7 @@ def patch_session(text: str) -> str:
     members += (ROOT / 'tv/fragments/viewport-members.ets').read_text()
     text = replace_once(text, 'struct RemoteDesktop {', 'struct RemoteDesktop {\n' + members)
     text = replace_once(text, '  private canForwardInput(source: string): boolean {',
-                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { return false; }')
+                        '  private canForwardInput(source: string): boolean {\n    if (this.mateTvDisplayOpen || (this.mateTvTextOpen && source !== \'matetv-submit-text\')) { if (source !== \'mouse\' && source !== \'mouseMove\') { hilog.info(RD_DOMAIN, RD_TAG, \'dropInput \' + source + \' tvPanel=1 \' + this.sessionInputOwner.debugString()); } return false; }')
     text = replace_once(text,
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            this.openRustDeskAuthSheet();",
                         "          } else if (this.pendingHost.protocol === 'rustdesk') {\n            if (!this.mateTvTrySavedPassword()) { this.openRustDeskAuthSheet(); }")

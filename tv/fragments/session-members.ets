@@ -172,6 +172,7 @@
   }
 
   private mateTvOpenText(): void {
+    if (this.mateTvTextOpen) { return; }
     this.mateTvStopJoystick();
     if (!this.canForwardInput('matetv-open-text')) { return; }
     this.mateTvCancelDrag();
@@ -181,7 +182,7 @@
     this.mateTvTextAttempt = this.connectAttemptId;
     this.mateTvText = '';
     this.mateTvTextError = '';
-    this.sessionInputOwner.appeared('MateTvText');
+    this.sessionInputOwner.visible('MateTvText', true);
     try {
       const ui = this.getUIContext();
       this.mateTvTextAvoidMode = ui.getKeyboardAvoidMode();
@@ -205,7 +206,8 @@
       try { this.getUIContext().setKeyboardAvoidMode(this.mateTvTextAvoidMode); } catch (_error) {}
       this.mateTvTextAvoidMode = null;
     }
-    this.sessionInputOwner.disappeared('MateTvText');
+    this.sessionInputOwner.retire('MateTvText');
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV panel close text ' + this.sessionInputOwner.debugString());
   }
 
   private mateTvFocusText(): void {

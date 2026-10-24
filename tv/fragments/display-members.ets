@@ -42,11 +42,14 @@
   }
 
   private mateTvOpenDisplay(): void {
+    if (this.mateTvDisplayOpen || !this.connected || this.cleanupStarted) { return; }
+    this.mateTvCloseText();
     this.mateTvStopJoystick();
     this.mateTvCancelDrag();
     this.releaseRustDeskInputBeforeBlock('matetv-display');
     this.mateTvRefreshStreamStatus();
-    this.sessionInputOwner.appeared('MateTvDisplay');
+    this.sessionInputOwner.visible('MateTvDisplay', true);
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV panel open display ' + this.sessionInputOwner.debugString());
     this.mateTvDisplayOpen = true;
     if (this.mateTvStreamTimer >= 0) { clearInterval(this.mateTvStreamTimer); }
     this.mateTvStreamTimer = setInterval((): void => { this.mateTvRefreshStreamStatus(); }, 1000);
@@ -54,7 +57,10 @@
 
   private mateTvCloseDisplay(): void {
     this.mateTvDisplayOpen = false;
-    this.sessionInputOwner.disappeared('MateTvDisplay');
+    // These inline panels have no native closing animation or stacked instances.
+    // Retire all of our own leases, including an earlier duplicate open.
+    this.sessionInputOwner.retire('MateTvDisplay');
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV panel close display ' + this.sessionInputOwner.debugString());
     if (this.mateTvStreamTimer >= 0) { clearInterval(this.mateTvStreamTimer); }
     this.mateTvStreamTimer = -1;
   }

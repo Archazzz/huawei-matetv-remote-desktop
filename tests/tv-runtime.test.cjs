@@ -247,3 +247,31 @@ test('TV startup restores saved streaming preferences after migration and respec
   page.mateTvInitStreamDefaults();
   assert.equal(storage.get('rustdeskImageQuality'), 1); assert.equal(storage.get('rustdeskCodec'), 2);
 });
+
+
+test('TV panel ownership is idempotent and closing retires only its own leases', () => {
+  const ownerSource = read('.work/client/entry/src/main/ets/services/RemoteSessionInputOwner.ets');
+  const display = read('tv/fragments/display-members.ets').split('  @Builder')[0];
+  const context = vm.createContext({
+    hilog: { info() {} }, RD_DOMAIN: 0, RD_TAG: 'test',
+    setInterval() { return 1; }, clearInterval() {},
+  });
+  vm.runInContext(stripTypeScriptTypes(ownerSource.replace(/export /g, '') +
+    '\nclass Panels {\n' + display.replace(/@State /g, '') +
+    '\n}\nglobalThis.Panels = Panels; globalThis.Owner = RemoteSessionInputOwner;'), context);
+  const page = new context.Panels();
+  page.sessionInputOwner = new context.Owner();
+  Object.assign(page, { connected: true, cleanupStarted: false, mateTvStopJoystick() {},
+    mateTvCloseText() {}, mateTvCancelDrag() {}, releaseRustDeskInputBeforeBlock() {}, mateTvRefreshStreamStatus() {} });
+  page.mateTvOpenDisplay(); page.mateTvOpenDisplay();
+  page.mateTvCloseDisplay();
+  assert.equal(page.sessionInputOwner.blocked(), false);
+  // Simulate old duplicate leases, and an unrelated authentication dialog.
+  page.sessionInputOwner.appeared('MateTvDisplay'); page.sessionInputOwner.appeared('MateTvDisplay');
+  const auth = page.sessionInputOwner.acquire('Auth', 'system');
+  page.mateTvCloseDisplay(); page.mateTvCloseDisplay();
+  assert.equal(page.sessionInputOwner.blocked(), true);
+  assert.equal(page.sessionInputOwner.debugString().includes('MateTvDisplay'), false);
+  page.sessionInputOwner.release(auth);
+  assert.equal(page.sessionInputOwner.blocked(), false);
+});
