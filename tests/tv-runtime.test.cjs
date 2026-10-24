@@ -224,3 +224,26 @@ test('Joystick stays bounded, pans continuously and returns to center without mo
   page.mateTvTickJoystick(1060);
   assert.equal(page.mateTvJoystickTimer, -1); close(page.canvasTransform.panX, position);
 });
+
+test('TV startup restores saved streaming preferences after migration and respects later user changes', () => {
+  const saved = new Map([['mateTvStreamDefaultsV2', true], ['rustdeskCodec', 5],
+    ['rustdeskImageQuality', 2], ['fps', 30]]);
+  const storage = new Map();
+  const context = vm.createContext({
+    preferences: { getPreferencesSync() { return {
+      getSync(key, fallback) { return saved.has(key) ? saved.get(key) : fallback; },
+      putSync(key, value) { saved.set(key, value); }, flushSync() {},
+    }; } }, getContext() {}, RUSTDESK_FPS_PREF_KEY: 'fps',
+    normalizeRustDeskFps(value) { return value; },
+    AppStorage: { setOrCreate(key, value) { storage.set(key, value); } },
+  });
+  const fragment = read('tv/fragments/display-members.ets').split('  @Builder')[0];
+  vm.runInContext(stripTypeScriptTypes('class Prefs {\n' + fragment.replace(/@State /g, '') +
+    '\n}\nglobalThis.Prefs = Prefs;'), context);
+  const page = new context.Prefs(); page.mateTvMode = true;
+  page.mateTvInitStreamDefaults();
+  assert.equal(storage.get('rustdeskCodec'), 5); assert.equal(storage.get('rustdeskImageQuality'), 2);
+  saved.set('rustdeskImageQuality', 1); saved.set('rustdeskCodec', 2);
+  page.mateTvInitStreamDefaults();
+  assert.equal(storage.get('rustdeskImageQuality'), 1); assert.equal(storage.get('rustdeskCodec'), 2);
+});

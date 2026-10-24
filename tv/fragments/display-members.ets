@@ -6,17 +6,24 @@
   private mateTvInitStreamDefaults(): void {
     if (!this.mateTvMode) { return; }
     const prefs = preferences.getPreferencesSync(getContext(this), { name: 'RemoteDesktopAppPrefs' });
-    if (prefs.getSync('mateTvStreamDefaultsV2', false) === true) { return; }
-    // Prefer text clarity on a large TV. HEVC is negotiated with the host;
-    // unsupported hosts/decoders retain the existing codec fallback path.
-    this.rustdeskCodec = 5;
-    this.rustdeskImageQuality = 2;
-    this.rustdeskFps = 30;
-    this.persistSessionPref('rustdeskCodec', 5);
-    this.persistSessionPref('rustdeskImageQuality', 2);
-    this.persistSessionPref(RUSTDESK_FPS_PREF_KEY, 30);
-    prefs.putSync('mateTvStreamDefaultsV2', true);
-    prefs.flushSync();
+    // TvHome bypasses upstream HostListPage, which normally loads these
+    // preferences. Restore them on every new TV session, not only migration.
+    if (prefs.getSync('mateTvStreamDefaultsV2', false) !== true) {
+      prefs.putSync('rustdeskCodec', 5);
+      prefs.putSync('rustdeskImageQuality', 2);
+      prefs.putSync(RUSTDESK_FPS_PREF_KEY, 30);
+      prefs.putSync('mateTvStreamDefaultsV2', true);
+      prefs.flushSync();
+    }
+    const codec: number = prefs.getSync('rustdeskCodec', 5) as number;
+    const quality: number = prefs.getSync('rustdeskImageQuality', 2) as number;
+    this.rustdeskCodec = codec >= 0 && codec <= 5 ? codec : 5;
+    this.rustdeskImageQuality = quality >= 0 && quality <= 2 ? quality : 2;
+    this.rustdeskFps = normalizeRustDeskFps(prefs.getSync(RUSTDESK_FPS_PREF_KEY, 30) as number);
+    AppStorage.setOrCreate('rustdeskCodec', this.rustdeskCodec);
+    AppStorage.setOrCreate('rustdeskImageQuality', this.rustdeskImageQuality);
+    AppStorage.setOrCreate(RUSTDESK_FPS_PREF_KEY, this.rustdeskFps);
+
   }
 
   private mateTvRefreshStreamStatus(): void {
