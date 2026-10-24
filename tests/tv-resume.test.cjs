@@ -4,23 +4,29 @@ const {readFileSync} = require('node:fs');
 const {stripTypeScriptTypes} = require('node:module');
 const vm = require('node:vm');
 const source = readFileSync('tv/fragments/resume-members.ets', 'utf8');
+const lifecycle = readFileSync('tv/fragments/lifecycle-members.ets', 'utf8').split('  @Builder')[0].replace(/@State /g, '');
 function fixture() {
-  let now = 0;
+  let now = 0, nextTimer = 0;
   const events = [], timers = [];
   const scope = {ownerScopeId:'scope-a', generation:1};
-  const context = vm.createContext({Date:{now:()=>now}, setTimeout(fn, ms) {timers.push([fn,ms]);},
+  const context = vm.createContext({Date:{now:()=>now},
+    setTimeout(fn, ms) {const id=++nextTimer;timers.push([fn,ms,id]);return id;},
+    clearTimeout(id) {const i=timers.findIndex(t=>t[2]===id);if(i>=0)timers.splice(i,1);},
     hilog:{info(){},warn(){}}, RD_DOMAIN:0, RD_TAG:'test',
     AccountSessionCoordinator:{getInstance:()=>({currentScope:()=>scope})},
     router:{replaceUrl(args) {events.push(['route', args]); return Promise.resolve();}}});
-  vm.runInContext(stripTypeScriptTypes('class Page {\n'+source+'\n}\nglobalThis.Page=Page;'),context);
+  vm.runInContext(stripTypeScriptTypes('class Page {\n'+source+lifecycle+'\n}\nglobalThis.Page=Page;'),context);
   const page = new context.Page();
   const stats = {sessionActive:true,sessionId:1,receivedFrames:100,presentedFrames:100,
     rendererGeneration:2,width:1920,height:1080};
   Object.assign(page,{mateTvMode:true, sessionId:1, connectAttemptId:1,
+    connected:true, backgroundDetachPromise:null,
     cleanupStarted:false,mateTvLeaving:false, background:false, pendingHost:{protocol:'rustdesk', id:'saved-host'},
     currentAbilityBackgroundState(){return this.background;},
     registryRestoreAdoptionIsCurrent(){return true;},
     clearBackgroundRenderRetry(){},clearPipRestoreRetry(){},
+    performForegroundRestore(){events.push(['reattach']);},
+    abandonSupersededRegistryRestore(){events.push(['abandon']);},
     disconnectAndCleanup(reason){events.push(['disconnect',reason]); this.cleanupStarted=true;},
     loader:{getConnectionState:()=>3, getRustDeskDiagnostics:()=>stats,
       requestDecoderRecovery(){events.push(['decoder']);},requestFrameRefresh(){events.push(['refresh']);}}});
@@ -35,6 +41,50 @@ test('Restore rejects old cumulative frames and requires fresh ingress plus pres
   await f.tick(); assert.equal(done,false);
   f.stats.receivedFrames++; await f.tick();
   assert.equal(await result,true); assert.equal(f.timers.length,0);
+});
+
+test('Actual Ability background return replaces the preserved session instead of reusing video',()=>{
+  const f=fixture();f.page.background=true;f.page.mateTvObserveLifecycle(true);
+  f.page.cleanupStarted=true;f.page.bgRestorePending=true;
+  f.page.background=false;f.page.mateTvObserveLifecycle(false);f.page.restoreFromBackground();
+  assert.deepEqual(f.events,[['disconnect','matetv-background-reconnect']]);
+  assert.equal(f.timers.length,0);
+  f.page.mateTvFinishResumeReconnect();assert.equal(f.events[1][0],'route');
+});
+test('Local panel focus and foreground-only callbacks do not force a new connection',()=>{
+  const f=fixture();f.page.mateTvObserveLifecycle(false);
+  assert.equal(f.page.mateTvReconnectPreservedSession(),false);
+  assert.equal(f.events.length,0);
+  f.page.pendingHost.protocol='rdp';f.page.mateTvObserveLifecycle(true);f.page.mateTvObserveLifecycle(false);
+  assert.equal(f.page.mateTvReconnectPreservedSession(),false);
+});
+test('Foreground reconnect waits for detach completion even when detach failed before setting restorePending',async()=>{
+  const f=fixture();let finish;
+  f.page.backgroundDetachPromise=new Promise(r=>{finish=r;});
+  f.page.mateTvObserveLifecycle(true);f.page.mateTvObserveLifecycle(false);
+  f.page.restoreFromBackground();f.page.restoreFromBackground();
+  assert.equal(f.events.length,0);assert.equal(f.timers.length,1);
+  f.page.backgroundDetachPromise=null;finish();await Promise.resolve();
+  assert.deepEqual(f.events,[['disconnect','matetv-background-reconnect']]);
+  assert.equal(f.timers.length,0);
+});
+test('Stalled detach reports a finite failure without freeing the native session or polling again',async()=>{
+  const f=fixture();f.page.backgroundDetachPromise=new Promise(()=>{});
+  f.page.mateTvObserveLifecycle(true);f.page.mateTvObserveLifecycle(false);f.page.restoreFromBackground();
+  await f.tick();assert.match(f.page.connectionError,/恢复准备超时/);
+  assert.equal(f.events.length,0);assert.equal(f.timers.length,0);
+});
+test('Re-backgrounding clears the detach deadline; another foreground arms it once',()=>{
+  const f=fixture();f.page.backgroundDetachPromise=new Promise(()=>{});
+  f.page.mateTvObserveLifecycle(true);f.page.mateTvObserveLifecycle(false);f.page.restoreFromBackground();
+  f.page.background=true;f.page.mateTvObserveLifecycle(true);assert.equal(f.timers.length,0);
+  f.page.background=false;f.page.mateTvObserveLifecycle(false);f.page.restoreFromBackground();
+  assert.equal(f.timers.length,1);f.page.mateTvCancelResumeReconnect();assert.equal(f.timers.length,0);
+});
+test('A preserved session superseded by another owner cannot be disconnected by foreground return',()=>{
+  const f=fixture();f.page.mateTvObserveLifecycle(true);f.page.mateTvObserveLifecycle(false);
+  f.page.registryRestoreAdoptionIsCurrent=()=>false;f.page.restoreFromBackground();
+  assert.deepEqual(f.events,[['abandon']]);
 });
 test('New packets without any new presentation cannot pass the foreground barrier',async()=>{
   const f=fixture();let done=false;

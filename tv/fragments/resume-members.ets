@@ -4,8 +4,38 @@
   private mateTvReconnectScope: string = '';
   private mateTvReconnectScopeGeneration: number = -1;
   private mateTvReconnectTerminal: boolean = false;
+  private mateTvResumeNeedsFreshSession: boolean = false;
+  private mateTvDetachDeadlineTimer: number = -1;
+
+  private mateTvClearDetachDeadline(): void {
+    if (this.mateTvDetachDeadlineTimer >= 0) {
+      clearTimeout(this.mateTvDetachDeadlineTimer);
+      this.mateTvDetachDeadlineTimer = -1;
+    }
+  }
+
+  private mateTvWatchDetachDeadline(sessionId: number, attemptId: number): void {
+    if (!this.mateTvMode || !this.mateTvResumeNeedsFreshSession ||
+        this.mateTvDetachDeadlineTimer >= 0) { return; }
+    const epoch: number = this.mateTvResumeEpoch;
+    this.mateTvDetachDeadlineTimer = setTimeout((): void => {
+      this.mateTvDetachDeadlineTimer = -1;
+      if (this.sessionId !== sessionId || this.connectAttemptId !== attemptId ||
+          this.mateTvResumeEpoch !== epoch || this.currentAbilityBackgroundState() ||
+          this.mateTvLeaving || this.backgroundDetachPromise === null) { return; }
+      // Never race native/PIP ownership just to meet a UI deadline. Expose a
+      // bounded failure while the existing terminal barrier retains the slot.
+      this.connecting = false;
+      this.connectionProgressMessage = '';
+      this.connectionError = '恢复准备超时，请返回电脑列表后重试';
+      try { promptAction.showToast({ message: this.connectionError, duration: 3000 }); } catch (_) {}
+      hilog.warn(RD_DOMAIN, RD_TAG, 'MateTV foreground detach barrier timeout; native ownership retained');
+    }, 10000);
+  }
 
   private mateTvCancelResumeReconnect(): void {
+    this.mateTvClearDetachDeadline();
+    this.mateTvResumeNeedsFreshSession = false;
     this.mateTvReconnectHost = '';
     this.mateTvReconnectScope = '';
     this.mateTvReconnectScopeGeneration = -1;
@@ -16,9 +46,34 @@
     if (background !== this.mateTvResumeBackground) {
       this.mateTvResumeBackground = background;
       this.mateTvResumeEpoch++;
+      if (background && this.mateTvMode && this.connected && this.sessionId > 0 &&
+          this.pendingHost?.protocol === 'rustdesk') {
+        this.mateTvResumeNeedsFreshSession = true;
+      }
     }
+    if (background) { this.mateTvClearDetachDeadline(); }
     // An in-flight native teardown must finish. Keep only its host/scope intent;
     // routing stays suspended until a later foreground event, without a timer.
+  }
+
+  private mateTvReconnectPreservedSession(): boolean {
+    if (!this.mateTvMode || !this.mateTvResumeNeedsFreshSession ||
+        this.pendingHost?.protocol !== 'rustdesk') { return false; }
+    if (this.currentAbilityBackgroundState() || this.mateTvLeaving ||
+        this.pcWindowHandoffStarted || this.pcWindowHandoffComplete ||
+        this.sessionId <= 0 || !this.connected) { return true; }
+    if (this.backgroundDetachPromise !== null) { return true; }
+    if (!this.registryRestoreAdoptionIsCurrent()) {
+      this.mateTvResumeNeedsFreshSession = false;
+      this.abandonSupersededRegistryRestore();
+      return true;
+    }
+    // This is an Ability background/foreground transition, never an input
+    // focus or settings/IME transition. Do not reuse its detached video chain.
+    this.mateTvResumeNeedsFreshSession = false;
+    this.mateTvClearDetachDeadline();
+    this.mateTvQueueResumeReconnect('ability-foreground');
+    return true;
   }
 
   private mateTvResumeIsCurrent(sessionId: number, attemptId: number, epoch: number): boolean {
@@ -68,17 +123,21 @@
     // Consume a stale TV retry without touching a new session or reviving background UI.
     if (!this.mateTvResumeIsCurrent(sessionId, attemptId, this.mateTvResumeEpoch) ||
         !this.registryRestoreAdoptionIsCurrent()) { return true; }
-    if (this.mateTvReconnectHost.length > 0) { return true; }
+    this.mateTvQueueResumeReconnect(reason);
+    return true;
+  }
+
+  private mateTvQueueResumeReconnect(reason: string): void {
+    if (this.mateTvReconnectHost.length > 0 || this.pendingHost === null) { return; }
     const scope = AccountSessionCoordinator.getInstance().currentScope();
     this.mateTvReconnectHost = this.pendingHost.id;
     this.mateTvReconnectScope = scope.ownerScopeId;
     this.mateTvReconnectScopeGeneration = scope.generation;
     this.clearBackgroundRenderRetry();
     this.clearPipRestoreRetry();
-    hilog.warn(RD_DOMAIN, RD_TAG, 'MateTV foreground recovery exhausted; releasing session reason=' + reason);
+    hilog.info(RD_DOMAIN, RD_TAG, 'MateTV foreground releasing preserved session reason=' + reason);
     // Native terminal receipt releases the single-session slot before navigation.
     this.disconnectAndCleanup('matetv-background-reconnect');
-    return true;
   }
 
   private mateTvFinishResumeReconnect(): void {

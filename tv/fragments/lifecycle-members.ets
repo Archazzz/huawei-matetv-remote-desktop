@@ -5,25 +5,28 @@
     if (this.currentAbilityBackgroundState() || this.mateTvLeaving) { return; }
     const pending: Promise<void> | null = this.backgroundDetachPromise;
     if (pending === null) {
+      if (this.mateTvReconnectPreservedSession()) { return; }
       this.performForegroundRestore();
       return;
     }
-    if (this.mateTvRestoreWaitingForDetach === pending) { return; }
-    this.mateTvRestoreWaitingForDetach = pending;
     const sessionId: number = this.sessionId;
     const attemptId: number = this.connectAttemptId;
+    this.mateTvWatchDetachDeadline(sessionId, attemptId);
+    if (this.mateTvRestoreWaitingForDetach === pending) { return; }
+    this.mateTvRestoreWaitingForDetach = pending;
     hilog.info(RD_DOMAIN, RD_TAG, 'foreground restore waiting for background detach barrier');
     // PIP auto-start can take several seconds. Never reset cleanup/surface
     // state or poll the page surface while that operation can still detach it.
     const resume = (): void => {
       if (this.mateTvRestoreWaitingForDetach !== pending) { return; }
       this.mateTvRestoreWaitingForDetach = null;
+      this.mateTvClearDetachDeadline();
       if (this.sessionId !== sessionId || this.connectAttemptId !== attemptId ||
           !this.connected || this.mateTvLeaving || this.currentAbilityBackgroundState() ||
           this.pcWindowHandoffStarted || this.pcWindowHandoffComplete) { return; }
       // Re-enter the gate in case another detach started before this callback.
       // Even a rejected detach must pass the existing PIP terminal barrier.
-      if (this.bgRestorePending) { this.restoreFromBackground(); }
+      if (this.bgRestorePending || this.mateTvResumeNeedsFreshSession) { this.restoreFromBackground(); }
     };
     pending.then(resume, (error: Error): void => {
       hilog.warn(RD_DOMAIN, RD_TAG, 'background detach failed before foreground restore: ' + error.message);

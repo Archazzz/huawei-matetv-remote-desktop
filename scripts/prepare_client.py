@@ -417,7 +417,8 @@ def patch_tv_foreground_recovery(text: str) -> str:
                         '    this.mateTvObserveLifecycle(isBackground);')
     text = replace_once(text, '    if (!isBackground && !this.sessionViewVisible) { return; }',
                         '    if (!isBackground && !this.sessionViewVisible) { return; }\n'
-                        '    if (!isBackground && this.mateTvResumeReconnectOnForeground()) { return; }')
+                        '    if (!isBackground && this.mateTvResumeReconnectOnForeground()) { return; }\n'
+                        '    if (!isBackground && this.mateTvResumeNeedsFreshSession) { this.restoreFromBackground(); return; }')
     text = replace_once(text, '    this.releaseFailedBackgroundRenderer(reason);',
                         '    if (this.mateTvReconnectAfterRestoreFailure(sessionId, attemptId, reason)) { return; }\n'
                         '    this.releaseFailedBackgroundRenderer(reason);')
