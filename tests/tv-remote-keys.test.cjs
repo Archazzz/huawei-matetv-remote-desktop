@@ -113,6 +113,8 @@ test('shortcut modifiers are selected from the remote computer platform', () => 
 // Run the actual integration methods with a UI/device boundary; no generated project edits.
 const fragment = readFileSync('tv/fragments/remote-key-members.ets', 'utf8').split('  @Builder')[0].replace(/@State /g, '');
 vm.runInContext(stripTypeScriptTypes('class RemoteKeyHarness {\n' + fragment + '\n}\nglobalThis.RemoteKeyHarness = RemoteKeyHarness;'), api);
+vm.runInContext(stripTypeScriptTypes(readFileSync('.work/client/entry/src/main/ets/services/RemoteSessionInputOwner.ets', 'utf8')
+  .replace(/^export /gm, '') + '\nglobalThis.RemoteSessionInputOwner = RemoteSessionInputOwner;'), api);
 api.KeyType = { Down: 0, Up: 1 };
 api.RemoteKeyboardLayout = { MACOS: 'macos' };
 api.promptAction = { showToast() {} };
@@ -126,7 +128,7 @@ function harness() {
     mateTvLeaving: false, mateTvDisplayOpen: false, mateTvTextOpen: false,
     keyboardOpen: false, keyboardImeActive: false,
     remoteKeyboardModalOwnsInput: () => false, remoteKeyboardForeground: () => true,
-    harmonyShortcutRemoteInputAllowed: () => true, sessionInputOwner: { allowsPhysical: () => true },
+    harmonyShortcutRemoteInputAllowed: () => true, sessionInputOwner: new api.RemoteSessionInputOwner(),
     canForwardInput: () => true, physicalKeyboardLayoutConfirmed: true,
     remoteKeyboardLayoutForSession: () => 'macos',
     sendVirtualKeyTap: (...args) => calls.push(['tap', ...args]),
@@ -152,7 +154,7 @@ test('integration gates settings, dictation, IME, lifecycle, modal and session o
   for (const blocker of ['mateTvDisplayOpen', 'mateTvTextOpen', 'keyboardOpen', 'keyboardImeActive', 'mateTvLeaving',
     'remoteKeyboardModalOwnsInput', 'remoteKeyboardForeground', 'harmonyShortcutRemoteInputAllowed', 'sessionInputOwner']) {
     const { h, calls, event } = harness();
-    if (blocker === 'sessionInputOwner') h.sessionInputOwner.allowsPhysical = () => false;
+    if (blocker === 'sessionInputOwner') h.sessionInputOwner.acquire('test-menu');
     else if (typeof h[blocker] === 'function') h[blocker] = () => blocker === 'remoteKeyboardModalOwnsInput';
     else h[blocker] = true;
     assert.equal(h.mateTvRouteRemoteKey(event(true)), false, blocker);
@@ -193,4 +195,58 @@ test('no durable identity produces an explicit connection-only binding; settings
   const firstKey = written[0][0];
   h.pendingHost.id = 'computer-b'; h.mateTvSaveRemoteKeys();
   assert.notEqual(written[1][0], firstKey);
+});
+
+// Mirror the two ownership boundaries in handleXComponentKey: the mapper gets
+// first refusal; only an unconsumed event enters upstream allowsPhysical once.
+function dispatchThroughOwners(h, code, device, down) {
+  const intercepted = h.mateTvRouteRemoteKey({ keyCode: code, deviceId: device,
+    type: down ? api.KeyType.Down : api.KeyType.Up, stopPropagation() {} });
+  return { intercepted, upstreamAllowed: intercepted ? null : h.sessionInputOwner.allowsPhysical(code, down) };
+}
+
+test('real input owner receives both Down and Up for every untouched keyboard path', () => {
+  for (const scenario of [
+    { name: 'unbound ordinary letter', code: 2017, device: 88, bound: -1 },
+    { name: 'unbound arrow', code: 2012, device: 88, bound: -1 },
+    { name: 'other Bluetooth keyboard arrow', code: 2012, device: 88, bound: 17 },
+    { name: 'bound remote default original', code: 2012, device: 17, bound: 17, original: true },
+    { name: 'bound remote ordinary letter', code: 2017, device: 17, bound: 17 },
+  ]) {
+    const { h, calls } = harness();
+    h.mateTvRemoteDeviceId = scenario.bound;
+    if (scenario.original) h.mateTvRemoteKeys.actions[0] = 'original';
+    for (const down of [true, true, false]) {
+      assert.deepEqual(dispatchThroughOwners(h, scenario.code, scenario.device, down),
+        { intercepted: false, upstreamAllowed: true }, scenario.name + (down ? ' Down' : ' Up'));
+    }
+    assert.deepEqual(dispatchThroughOwners(h, scenario.code, scenario.device, false),
+      { intercepted: false, upstreamAllowed: false }, scenario.name + ' duplicate Up');
+    assert.equal(calls.length, 0);
+  }
+});
+
+test('mapped remote press/release cannot consume a simultaneous Bluetooth keyboard lease', () => {
+  const { h, calls } = harness();
+  assert.deepEqual(dispatchThroughOwners(h, 2012, 88, true), { intercepted: false, upstreamAllowed: true });
+  assert.deepEqual(dispatchThroughOwners(h, 2012, 17, true), { intercepted: true, upstreamAllowed: null });
+  assert.deepEqual(dispatchThroughOwners(h, 2012, 17, false), { intercepted: true, upstreamAllowed: null });
+  assert.deepEqual(dispatchThroughOwners(h, 2012, 88, false), { intercepted: false, upstreamAllowed: true });
+  assert.equal(calls.length, 1);
+});
+
+test('real overlay owner cancels mapped holds while allowing release and a fresh press after close', () => {
+  const { h, calls } = harness();
+  h.mateTvRemoteKeys.actions[0] = 'arrow-up';
+  h.sessionInputOwner.observe(() => h.mateTvRemotePolicy.cancel());
+  dispatchThroughOwners(h, 2012, 17, true);
+  const overlay = h.sessionInputOwner.acquire('MateTvDisplay');
+  assert.deepEqual(dispatchThroughOwners(h, 2012, 17, true), { intercepted: false, upstreamAllowed: false });
+  h.sessionInputOwner.release(overlay);
+  assert.deepEqual(dispatchThroughOwners(h, 2012, 17, true), { intercepted: true, upstreamAllowed: null });
+  assert.equal(calls.length, 1);
+  dispatchThroughOwners(h, 2012, 17, false);
+  dispatchThroughOwners(h, 2012, 17, true);
+  dispatchThroughOwners(h, 2012, 17, false);
+  assert.equal(calls.length, 2);
 });

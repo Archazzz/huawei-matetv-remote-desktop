@@ -121,7 +121,10 @@
       !this.mateTvLeaving && !this.mateTvDisplayOpen && !this.mateTvTextOpen &&
       !this.keyboardOpen && !this.keyboardImeActive && !this.remoteKeyboardModalOwnsInput() &&
       this.remoteKeyboardForeground() && this.harmonyShortcutRemoteInputAllowed() &&
-      this.sessionInputOwner.allowsPhysical(event.keyCode, down);
+      // The mapper owns its mapped press/release state. Unmapped events continue
+      // to the upstream owner, whose allowsPhysical() consumes the matching Up.
+      // Checking that mutable lease here would consume an ordinary key twice.
+      !this.sessionInputOwner.blocked();
     const decision: TvRemoteKeyDecision = this.mateTvRemotePolicy.route(event.keyCode,
       event.deviceId === undefined ? -1 : event.deviceId, down, active,
       this.mateTvRemoteDeviceId, this.mateTvRemoteKeys, Date.now());
